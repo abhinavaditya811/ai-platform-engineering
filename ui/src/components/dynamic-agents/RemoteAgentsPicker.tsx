@@ -4,9 +4,10 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/components/ui/toast";
-import type { RemoteAgentRegistryEntry } from "@/types/dynamic-agent";
+import type { RemoteAgentCredentialSource, RemoteAgentRegistryEntry } from "@/types/dynamic-agent";
 import { Check, Loader2, Pencil, Plus, Trash2, X } from "lucide-react";
 import React from "react";
+import { defaultRemoteAgentAuth, isRemoteAgentAuthConfigured, RemoteAgentAuthFields } from "./RemoteAgentAuthFields";
 
 interface RemoteAgentsPickerProps {
   value: string[];
@@ -26,10 +27,11 @@ export function RemoteAgentsPicker({ value, onChange, timeoutValues, onTimeoutCh
   const [endpoint, setEndpoint] = React.useState("");
   const [description, setDescription] = React.useState("");
   const [timeoutSeconds, setTimeoutSeconds] = React.useState(120);
+  const [credentialSource, setCredentialSource] = React.useState<RemoteAgentCredentialSource>(defaultRemoteAgentAuth);
   const [probing, setProbing] = React.useState(false);
   const [probedCard, setProbedCard] = React.useState<{ protocol_version?: string; protocol_bindings?: string[] } | null>(null);
   const [editingId, setEditingId] = React.useState<string | null>(null);
-  const [editValues, setEditValues] = React.useState({ name: "", endpoint: "", description: "", timeout_seconds: 120 });
+  const [editValues, setEditValues] = React.useState({ name: "", endpoint: "", description: "", timeout_seconds: 120, credential_source: defaultRemoteAgentAuth() });
 
   const loadItems = React.useCallback(async () => {
     setLoading(true);
@@ -53,19 +55,26 @@ export function RemoteAgentsPicker({ value, onChange, timeoutValues, onTimeoutCh
     onChange(value.includes(id) ? value.filter((item) => item !== id) : [...value, id]);
   };
 
-  const probeEndpoint = async () => {
+  const probeEndpoint = async (edit = false) => {
     setProbing(true);
     try {
       const response = await fetch("/api/remote-agents/probe", {
         method: "POST", credentials: "include", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ endpoint }),
+        body: JSON.stringify({
+          endpoint: edit ? editValues.endpoint : endpoint,
+          credential_source: edit ? editValues.credential_source : credentialSource,
+        }),
       });
       const data = await response.json();
       if (!response.ok || !data.success) throw new Error(data.error || "Agent Card probe failed");
-      setName(data.data.name || "");
-      setDescription(data.data.description || "");
-      setProbedCard({ protocol_version: data.data.protocol_version, protocol_bindings: data.data.protocol_bindings });
-      toast("A2A Agent Card found. Review the metadata, then add the agent to the registry.", "success");
+      if (edit) {
+        toast("A2A Agent Card resolved with the selected authentication.", "success");
+      } else {
+        setName(data.data.name || "");
+        setDescription(data.data.description || "");
+        setProbedCard({ protocol_version: data.data.protocol_version, protocol_bindings: data.data.protocol_bindings });
+        toast("A2A Agent Card found. Review the metadata, then add the agent to the registry.", "success");
+      }
     } catch (error) {
       toast(`Could not probe A2A agent: ${error instanceof Error ? error.message : "Request failed"}`, "error");
     } finally {
@@ -74,20 +83,21 @@ export function RemoteAgentsPicker({ value, onChange, timeoutValues, onTimeoutCh
   };
 
   const addRemoteAgent = async () => {
-    if (!name.trim() || !endpoint.trim()) return;
+    if (!name.trim() || !endpoint.trim() || !isRemoteAgentAuthConfigured(credentialSource)) return;
     setSaving(true);
     try {
       const response = await fetch("/api/remote-agents", {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name, endpoint, description, timeout_seconds: timeoutSeconds, ...probedCard }),
+        body: JSON.stringify({ name, endpoint, description, timeout_seconds: timeoutSeconds, credential_source: credentialSource, ...probedCard }),
       });
       const data = await response.json();
       if (!response.ok || !data.success) throw new Error(data.error || "Failed to add remote agent");
       setItems((current) => [...current, data.data].sort((a, b) => a.name.localeCompare(b.name)));
       onChange([...new Set([...value, data.data._id])]);
       setName(""); setEndpoint(""); setDescription(""); setTimeoutSeconds(120); setProbedCard(null);
+      setCredentialSource(defaultRemoteAgentAuth());
       toast("Remote A2A agent added", "success");
     } catch (error) {
       toast(`Could not add remote A2A agent: ${error instanceof Error ? error.message : "Request failed"}`, "error");
@@ -111,7 +121,7 @@ export function RemoteAgentsPicker({ value, onChange, timeoutValues, onTimeoutCh
 
   const saveRemoteAgent = async () => {
     if (!editingId) return;
-    if (!editValues.name.trim() || !editValues.endpoint.trim()) return;
+    if (!editValues.name.trim() || !editValues.endpoint.trim() || !isRemoteAgentAuthConfigured(editValues.credential_source)) return;
     setSaving(true);
     try {
       const response = await fetch(`/api/remote-agents/${encodeURIComponent(editingId)}`, {
@@ -135,7 +145,7 @@ export function RemoteAgentsPicker({ value, onChange, timeoutValues, onTimeoutCh
       <div>
         <Label>Remote A2A Agents</Label>
         <p className="mt-1 text-xs text-muted-foreground">
-          Choose registered agents this agent can call. The caller&apos;s Dynamic Agents bearer token is forwarded on each request.
+          Choose registered agents this agent can call. Each endpoint uses its configured authentication header.
         </p>
       </div>
       {loading ? <div className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" />Loading remote agents…</div> : items.length === 0 ? <p className="text-sm text-muted-foreground">No remote A2A agents are registered.</p> : (
@@ -151,8 +161,8 @@ export function RemoteAgentsPicker({ value, onChange, timeoutValues, onTimeoutCh
                   <div className="mt-3 flex items-end gap-2">
                     <div className="w-36"><Label htmlFor={`timeout-${item._id}`} className="text-xs">Timeout (seconds)</Label><Input id={`timeout-${item._id}`} type="number" min={1} max={600} value={timeoutValues[item._id] ?? item.timeout_seconds ?? 120} disabled={disabled || !value.includes(item._id)} onChange={(event) => onTimeoutChange(item._id, Number(event.target.value))} /></div>
                     {canManage && <>
-                      <Button type="button" variant="ghost" size="sm" onClick={() => { setEditingId(item._id); setEditValues({ name: item.name, endpoint: item.endpoint || "", description: item.description || "", timeout_seconds: item.timeout_seconds || 120 }); }} aria-label={`Edit ${item.name}`}><Pencil className="h-4 w-4" /></Button>
-                      <Button type="button" variant="ghost" size="sm" onClick={() => void removeRemoteAgent(item)} aria-label={`Remove ${item.name}`}><Trash2 className="h-4 w-4" /></Button>
+                      <Button type="button" variant="ghost" size="sm" disabled={disabled || saving} onClick={() => { setEditingId(item._id); setEditValues({ name: item.name, endpoint: item.endpoint || "", description: item.description || "", timeout_seconds: item.timeout_seconds || 120, credential_source: item.credential_source || defaultRemoteAgentAuth() }); }} aria-label={`Edit ${item.name}`}><Pencil className="h-4 w-4" /></Button>
+                      <Button type="button" variant="ghost" size="sm" disabled={disabled || saving} onClick={() => void removeRemoteAgent(item)} aria-label={`Remove ${item.name}`}><Trash2 className="h-4 w-4" /></Button>
                     </>}
                   </div>
                 </div>
@@ -161,6 +171,7 @@ export function RemoteAgentsPicker({ value, onChange, timeoutValues, onTimeoutCh
                 <div
                   className="mt-4 space-y-3 border-t pt-3"
                   onKeyDown={(event) => {
+                    if (event.defaultPrevented || !event.currentTarget.contains(event.target as Node)) return;
                     if (event.key !== "Enter" || !(event.target instanceof HTMLInputElement)) return;
                     event.preventDefault();
                     void saveRemoteAgent();
@@ -172,8 +183,15 @@ export function RemoteAgentsPicker({ value, onChange, timeoutValues, onTimeoutCh
                     <div className="space-y-1"><Label htmlFor={`edit-remote-agent-description-${item._id}`}>Description</Label><Input id={`edit-remote-agent-description-${item._id}`} value={editValues.description} onChange={(event) => setEditValues((current) => ({ ...current, description: event.target.value }))} /></div>
                     <div className="space-y-1"><Label htmlFor={`edit-remote-agent-timeout-${item._id}`}>Default timeout (seconds)</Label><Input id={`edit-remote-agent-timeout-${item._id}`} type="number" min={1} max={600} value={editValues.timeout_seconds} onChange={(event) => setEditValues((current) => ({ ...current, timeout_seconds: Number(event.target.value) }))} /></div>
                   </div>
-                  <div className="flex gap-2">
-                    <Button type="button" size="sm" disabled={saving || !editValues.name.trim() || !editValues.endpoint.trim()} onClick={() => void saveRemoteAgent()}><Check className="mr-2 h-4 w-4" />Save</Button>
+                  <RemoteAgentAuthFields
+                    value={editValues.credential_source}
+                    onChange={(source) => setEditValues((current) => ({ ...current, credential_source: source }))}
+                    idPrefix={`edit-${item._id}`}
+                    disabled={disabled || saving || probing}
+                  />
+                  <div className="flex flex-wrap gap-2">
+                    <Button type="button" size="sm" variant="outline" disabled={disabled || probing || !editValues.endpoint.trim() || !isRemoteAgentAuthConfigured(editValues.credential_source)} onClick={() => void probeEndpoint(true)}>{probing ? "Checking…" : "Test connection"}</Button>
+                    <Button type="button" size="sm" disabled={disabled || saving || !editValues.name.trim() || !editValues.endpoint.trim() || !isRemoteAgentAuthConfigured(editValues.credential_source)} onClick={() => void saveRemoteAgent()}><Check className="mr-2 h-4 w-4" />Save</Button>
                     <Button type="button" size="sm" variant="outline" onClick={() => setEditingId(null)}><X className="mr-2 h-4 w-4" />Cancel</Button>
                   </div>
                 </div>
@@ -186,6 +204,7 @@ export function RemoteAgentsPicker({ value, onChange, timeoutValues, onTimeoutCh
         <div
           className="space-y-3 rounded-lg border border-dashed p-4"
           onKeyDown={(event) => {
+            if (event.defaultPrevented || !event.currentTarget.contains(event.target as Node)) return;
             if (event.key !== "Enter" || !(event.target instanceof HTMLInputElement)) return;
             event.preventDefault();
             void addRemoteAgent();
@@ -198,9 +217,15 @@ export function RemoteAgentsPicker({ value, onChange, timeoutValues, onTimeoutCh
             <div className="space-y-1"><Label htmlFor="remote-agent-description">Description</Label><Input id="remote-agent-description" value={description} onChange={(event) => setDescription(event.target.value)} /></div>
             <div className="space-y-1"><Label htmlFor="remote-agent-timeout">Timeout (seconds, 1–600)</Label><Input id="remote-agent-timeout" type="number" min={1} max={600} value={timeoutSeconds} onChange={(event) => setTimeoutSeconds(Number(event.target.value))} /></div>
           </div>
+          <RemoteAgentAuthFields
+            value={credentialSource}
+            onChange={(source) => { setCredentialSource(source); setProbedCard(null); }}
+            idPrefix="new-remote-agent"
+            disabled={saving || probing}
+          />
           <div className="flex flex-wrap items-center gap-2">
-            <Button type="button" size="sm" variant="outline" disabled={probing || !endpoint.trim()} onClick={() => void probeEndpoint()}>{probing ? "Probing…" : "Discover Agent Card"}</Button>
-            <Button type="button" size="sm" disabled={saving || !name.trim() || !endpoint.trim()} onClick={() => void addRemoteAgent()}><Plus className="mr-2 h-4 w-4" />{saving ? "Adding…" : "Add and select"}</Button>
+            <Button type="button" size="sm" variant="outline" disabled={probing || !endpoint.trim() || !isRemoteAgentAuthConfigured(credentialSource)} onClick={() => void probeEndpoint()}>{probing ? "Probing…" : "Discover Agent Card"}</Button>
+            <Button type="button" size="sm" disabled={saving || !name.trim() || !endpoint.trim() || !isRemoteAgentAuthConfigured(credentialSource)} onClick={() => void addRemoteAgent()}><Plus className="mr-2 h-4 w-4" />{saving ? "Adding…" : "Add and select"}</Button>
             {probedCard?.protocol_bindings?.length ? <span className="text-xs text-muted-foreground">A2A {probedCard.protocol_version || ""} · {probedCard.protocol_bindings.join(", ")}</span> : null}
           </div>
         </div>

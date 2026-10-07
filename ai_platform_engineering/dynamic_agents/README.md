@@ -91,9 +91,13 @@ DYNAMIC_AGENTS_COLLECTION=dynamic_agents
 MCP_SERVERS_COLLECTION=mcp_servers
 
 # Authentication
-# In production, the Next.js gateway injects X-User-Context headers.
-# For local development, set DEBUG=true to bypass auth with a dev admin user.
-DEBUG=true
+# Use Keycloak for local development and production.
+AUTH_ENABLED=true
+DA_REQUIRE_BEARER=true
+KEYCLOAK_URL=http://localhost:7080
+KEYCLOAK_REALM=caipe
+# Set OIDC_ISSUER when the browser-facing issuer differs from KEYCLOAK_URL.
+DEBUG=false
 
 # LLM Provider (configure at least one)
 # For Anthropic:
@@ -148,7 +152,7 @@ The API documentation is available at:
 | `HOST` | Server bind address | `0.0.0.0` |
 | `PORT` | Server port | `8001` |
 | `METRICS_PORT` | Dedicated port for `/metrics` (0 = same as `PORT`) | `0` |
-| `DEBUG` | Enable debug mode / hot reload / dev auth bypass | `false` |
+| `DEBUG` | Enable debug mode / hot reload | `false` |
 | `MONGODB_URI` | MongoDB connection string | `mongodb://localhost:27017` |
 | `MONGODB_DATABASE` | Database name | `caipe` |
 | `DYNAMIC_AGENTS_COLLECTION` | Agents collection name | `dynamic_agents` |
@@ -405,3 +409,17 @@ dynamic_agents/
 - [SSE_EVENTS.md](./SSE_EVENTS.md) - SSE event types and streaming protocol
 - [UI Integration](../../ui/src/components/dynamic-agents/) - Frontend components
 - [MCP Protocol](https://modelcontextprotocol.io/) - Model Context Protocol specification
+
+
+## Remote A2A agents
+
+- Register endpoints in **Agents > Advanced > Remote A2A Agents** as a platform admin.
+- Select multiple registry entries for an agent or its subagents. Each entry becomes a callable tool.
+- Configure a default timeout (1–600 seconds); agent authors can override it per selection.
+- Choose **User JWT**, **Saved secret**, or **Connected credential**, then set the header name.
+- `Authorization` sends a Bearer token; other headers receive the value directly.
+- Saved secrets require the invoking caller's use permission. Connected credentials resolve the invoking caller's own provider account.
+- Set `CREDENTIAL_API_URL` to the UI credential API (for example `http://caipe-ui:3000/api/credentials`) for secrets and connected accounts. `CREDENTIAL_SERVICE_AUDIENCE` defaults to `caipe-credential-service`.
+- Credentials resolve on every invocation. Registry edits invalidate cached runtimes on the next request.
+- Agent Card discovery and calls use the official A2A SDK with JSON-RPC or HTTP+JSON negotiation.
+- Endpoints are called directly; `AGENT_GATEWAY_URL` configures MCP routing only.

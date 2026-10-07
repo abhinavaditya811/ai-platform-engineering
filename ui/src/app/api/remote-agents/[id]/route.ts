@@ -6,6 +6,7 @@ import {
   withErrorHandler,
 } from "@/lib/api-middleware";
 import { getCollection } from "@/lib/mongodb";
+import { normalizeRemoteAgentCredentialSource } from "@/lib/remote-agent-auth";
 import { Document } from "mongodb";
 import { NextRequest } from "next/server";
 
@@ -37,6 +38,9 @@ export const PUT = withErrorHandler(async (request: NextRequest, context: { para
     update.name = body.name.trim();
   }
   if (body.description !== undefined) update.description = typeof body.description === "string" ? body.description.trim() : "";
+  if (body.credential_source !== undefined) {
+    update.credential_source = normalizeRemoteAgentCredentialSource(body.credential_source);
+  }
   if (body.endpoint !== undefined) {
     if (typeof body.endpoint !== "string") throw new ApiError("Endpoint must be a URL", 400, "INVALID_REMOTE_AGENT");
     let url: URL;

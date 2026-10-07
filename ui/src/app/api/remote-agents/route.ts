@@ -6,6 +6,8 @@ import {
   withErrorHandler,
 } from "@/lib/api-middleware";
 import { getCollection } from "@/lib/mongodb";
+import { normalizeRemoteAgentCredentialSource } from "@/lib/remote-agent-auth";
+import type { RemoteAgentCredentialSource } from "@/types/dynamic-agent";
 import { Document } from "mongodb";
 import { NextRequest } from "next/server";
 
@@ -19,6 +21,7 @@ interface RemoteAgentDocument extends Document {
   description?: string;
   endpoint?: string;
   timeout_seconds: number;
+  credential_source?: RemoteAgentCredentialSource;
   protocol_version?: string;
   protocol_bindings?: string[];
   enabled?: boolean;
@@ -112,7 +115,7 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
     timeout_seconds: 1,
     protocol_version: 1,
     protocol_bindings: 1,
-    ...(canManage ? { endpoint: 1 } : {}),
+    ...(canManage ? { endpoint: 1, credential_source: 1 } : {}),
   };
   const items = await collection.find({ enabled: { $ne: false } })
     .project(projection)
@@ -128,6 +131,7 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
   const name = normalizeName(body.name);
   const endpoint = normalizeEndpoint(body.endpoint);
   const timeout_seconds = normalizeTimeout(body.timeout_seconds);
+  const credential_source = normalizeRemoteAgentCredentialSource(body.credential_source);
   const id = `remote-${slugify(name)}`;
   if (id === "remote-") throw new ApiError("Name must include letters or numbers", 400, "INVALID_REMOTE_AGENT");
 
@@ -142,6 +146,7 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
     description: typeof body.description === "string" ? body.description.trim() : "",
     endpoint,
     timeout_seconds,
+    credential_source,
     protocol_version: typeof body.protocol_version === "string" ? body.protocol_version : undefined,
     protocol_bindings: Array.isArray(body.protocol_bindings) ? body.protocol_bindings.filter((item): item is string => typeof item === "string") : [],
     enabled: true,

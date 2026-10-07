@@ -13,6 +13,9 @@ from pydantic import BaseModel, Field
 
 from dynamic_agents.auth.auth import UserContext, get_user_context
 from dynamic_agents.auth.token_context import current_user_token
+from dynamic_agents.config import get_settings
+from dynamic_agents.models import RemoteAgentCredentialSource
+from dynamic_agents.services.remote_agent_tool import resolve_remote_agent_auth_headers
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/remote-agents", tags=["remote-agents"])
@@ -20,6 +23,7 @@ router = APIRouter(prefix="/remote-agents", tags=["remote-agents"])
 
 class RemoteAgentProbeRequest(BaseModel):
     endpoint: str = Field(min_length=1, max_length=2048)
+    credential_source: RemoteAgentCredentialSource | None = None
 
 
 class RemoteAgentProbeResponse(BaseModel):
@@ -40,11 +44,17 @@ async def probe_remote_agent(
         raise HTTPException(status_code=400, detail="Endpoint must be an HTTP or HTTPS URL")
 
     token = current_user_token.get()
-    headers = {"Authorization": f"Bearer {token}"} if token else None
+    settings = get_settings()
     try:
+        headers = await resolve_remote_agent_auth_headers(
+            payload.credential_source.model_dump() if payload.credential_source else None,
+            caller_token=token,
+            credential_api_url=settings.credential_api_url,
+            credential_service_audience=settings.credential_service_audience,
+        )
         async with httpx.AsyncClient(timeout=httpx.Timeout(10.0), headers=headers) as client:
             card = await A2ACardResolver(client, payload.endpoint).get_agent_card()
-    except (AgentCardResolutionError, httpx.HTTPError, ValueError) as exc:
+    except (AgentCardResolutionError, httpx.HTTPError, ValueError, RuntimeError) as exc:
         logger.info("A2A card probe failed for %s: %s", payload.endpoint, exc)
         raise HTTPException(status_code=502, detail=f"Could not resolve A2A Agent Card: {exc}") from exc
 

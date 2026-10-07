@@ -1,8 +1,9 @@
 import React from "react";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 
+const mockToast = jest.fn();
 jest.mock("@/components/ui/toast", () => ({
-  useToast: () => ({ toast: jest.fn() }),
+  useToast: () => ({ toast: mockToast }),
 }));
 
 import { RemoteAgentsPicker } from "../RemoteAgentsPicker";
@@ -28,10 +29,10 @@ describe("RemoteAgentsPicker", () => {
       if (url === "/api/remote-agents") {
         if (init?.method === "POST") {
           return jsonResponse({
-            _id: "remote-netutils-agent",
-            name: "Netutils Agent",
+            _id: "remote-example-agent",
+            name: "Example Agent",
             description: "Network diagnostics.",
-            endpoint: "http://netutils-agent:8120/",
+            endpoint: "https://agent.example.test/",
             timeout_seconds: 120,
             enabled: true,
           }, 201);
@@ -40,7 +41,7 @@ describe("RemoteAgentsPicker", () => {
       }
       if (url === "/api/remote-agents/probe") {
         return jsonResponse({
-          name: "Netutils Agent",
+          name: "Example Agent",
           description: "Network diagnostics.",
           protocol_version: "1.0",
           protocol_bindings: ["JSONRPC"],
@@ -65,11 +66,11 @@ describe("RemoteAgentsPicker", () => {
     expect(container.querySelectorAll("form")).toHaveLength(1);
 
     fireEvent.change(screen.getByLabelText("Agent URL"), {
-      target: { value: "http://netutils-agent:8120/" },
+      target: { value: "https://agent.example.test/" },
     });
     fireEvent.click(screen.getByRole("button", { name: "Discover Agent Card" }));
 
-    expect(await screen.findByDisplayValue("Netutils Agent")).toBeInTheDocument();
+    expect(await screen.findByDisplayValue("Example Agent")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Add and select" }));
 
     await waitFor(() => {
@@ -77,8 +78,45 @@ describe("RemoteAgentsPicker", () => {
         "/api/remote-agents",
         expect.objectContaining({ method: "POST" }),
       );
-      expect(onChange).toHaveBeenCalledWith(["remote-netutils-agent"]);
+      expect(onChange).toHaveBeenCalledWith(["remote-example-agent"]);
     });
     expect(onParentSubmit).not.toHaveBeenCalled();
   });
+  it.each(["secret_ref", "provider_connection"])("saves the selected %s authentication reference", async (kind) => {
+    const onParentSubmit = jest.fn((event: React.FormEvent) => event.preventDefault());
+    const fetchMock = jest.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = input.toString();
+      if (url === "/api/credentials/secrets") return jsonResponse([{ id: "secret-example", name: "Example secret" }]);
+      if (url === "/api/credentials/oauth-connectors") return jsonResponse([{ provider: "example", name: "Example provider" }]);
+      if (url === "/api/remote-agents/probe") return jsonResponse({ name: "Example Agent", description: "Example" });
+      if (url === "/api/remote-agents") {
+        if (init?.method === "POST") return jsonResponse({ _id: "remote-example", ...JSON.parse(init.body as string) });
+        return jsonResponse({ items: [], can_manage_registry: true });
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    global.fetch = fetchMock;
+    render(<form onSubmit={onParentSubmit}><RemoteAgentsPicker value={[]} onChange={jest.fn()} timeoutValues={{}} onTimeoutChange={jest.fn()} /></form>);
+    await screen.findByText("No remote A2A agents are registered.");
+    fireEvent.change(screen.getByLabelText("Credential source"), { target: { value: kind } });
+    fireEvent.change(screen.getByLabelText("Header name"), { target: { value: "X-Agent-Token" } });
+    if (kind === "secret_ref") {
+      fireEvent.click(screen.getByRole("combobox", { name: "Saved secret" }));
+      fireEvent.click(await screen.findByRole("option", { name: "Example secret" }));
+    } else {
+      await screen.findByRole("option", { name: "Example provider" });
+      fireEvent.change(screen.getByRole("combobox", { name: "Connected provider" }), { target: { value: "example" } });
+    }
+    fireEvent.change(screen.getByLabelText("Agent URL"), { target: { value: "https://agent.example.test/" } });
+    fireEvent.click(screen.getByRole("button", { name: "Discover Agent Card" }));
+    await screen.findByDisplayValue("Example Agent");
+    fireEvent.click(screen.getByRole("button", { name: "Add and select" }));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith("/api/remote-agents", expect.objectContaining({ method: "POST" })));
+    const source = { kind, target: "header", name: "X-Agent-Token", ...(kind === "secret_ref" ? { secret_ref: "secret-example" } : { provider: "example" }) };
+    for (const [, init] of fetchMock.mock.calls) {
+      if (init?.method === "POST") expect(JSON.parse(init.body as string).credential_source).toEqual(source);
+    }
+    expect(onParentSubmit).not.toHaveBeenCalled();
+  });
+
 });

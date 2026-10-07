@@ -6,13 +6,15 @@ import socket
 import threading
 import time
 from contextlib import contextmanager
+from typing import Any
 
+import httpx
 import pytest
 import uvicorn
 from a2a.server.agent_execution import AgentExecutor, RequestContext
 from a2a.server.events import EventQueue
 from a2a.server.request_handlers import DefaultRequestHandler
-from a2a.server.routes import create_agent_card_routes, create_jsonrpc_routes
+from a2a.server.routes import create_agent_card_routes, create_jsonrpc_routes, create_rest_routes
 from a2a.server.tasks import InMemoryTaskStore
 from a2a.types import (
     AgentCapabilities,
@@ -25,16 +27,20 @@ from a2a.types import (
 from starlette.applications import Starlette
 
 from dynamic_agents.auth.token_context import current_user_token
+from dynamic_agents.services.credential_exchange import CredentialExchangeClient
 from dynamic_agents.services.remote_agent_tool import RemoteAgentTool, create_remote_agent_tool
 
 
 class _CaptureAuthorization:
     authorization: str | None = None
+    requests: list[dict[str, str]] = []
 
     def __init__(self, app):
         self.app = app
 
     async def __call__(self, scope, receive, send):
+        if scope["type"] == "http":
+            self.__class__.requests.append({key.decode(): value.decode() for key, value in scope.get("headers", [])})
         if scope["type"] == "http" and scope.get("path") == "/":
             headers = dict(scope.get("headers", []))
             self.__class__.authorization = headers.get(b"authorization", b"").decode() or None
@@ -56,7 +62,7 @@ class _EchoExecutor(AgentExecutor):
 
 
 @contextmanager
-def _sdk_agent_server():
+def _sdk_agent_server(protocol_binding: str = "JSONRPC"):
     with socket.socket() as sock:
         sock.bind(("127.0.0.1", 0))
         port = sock.getsockname()[1]
@@ -69,7 +75,7 @@ def _sdk_agent_server():
         default_input_modes=["text/plain"],
         default_output_modes=["text/plain"],
         supported_interfaces=[
-            AgentInterface(url=endpoint, protocol_binding="JSONRPC", protocol_version="1.0")
+            AgentInterface(url=endpoint, protocol_binding=protocol_binding, protocol_version="1.0")
         ],
     )
     handler = DefaultRequestHandler(
@@ -80,10 +86,11 @@ def _sdk_agent_server():
     app = _CaptureAuthorization(Starlette(
         routes=[
             *create_agent_card_routes(card),
-            *create_jsonrpc_routes(handler, rpc_url="/"),
+            *(create_jsonrpc_routes(handler, rpc_url="/") if protocol_binding == "JSONRPC" else create_rest_routes(handler)),
         ]
     ))
     _CaptureAuthorization.authorization = None
+    _CaptureAuthorization.requests = []
     server = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=port, log_level="critical"))
     thread = threading.Thread(target=server.run, daemon=True)
     thread.start()
@@ -127,3 +134,79 @@ def test_sync_run_is_not_supported():
 
     with pytest.raises(NotImplementedError):
         tool.invoke({"message": "ping"})
+
+
+@pytest.mark.parametrize("protocol_binding", ["JSONRPC", "HTTP+JSON"])
+@pytest.mark.parametrize("kind", ["caller_token", "secret_ref", "provider_connection"])
+async def test_selected_auth_reaches_card_and_agent_and_resolves_each_caller(
+    monkeypatch: pytest.MonkeyPatch, protocol_binding: str, kind: str,
+) -> None:
+    exchanges: list[tuple[str, dict[str, Any], str]] = []
+
+    async def exchange(client: CredentialExchangeClient, path: str, json_body: dict[str, Any]) -> dict[str, Any]:
+        caller = client._headers()["Authorization"].removeprefix("Bearer ")
+        exchanges.append((path, json_body, caller))
+        if path == "/retrieve":
+            return {"credential": f"saved-{caller}"}
+        return {"access_token": f"connected-{caller}"}
+
+    monkeypatch.setattr(CredentialExchangeClient, "_post", exchange)
+    source = {"kind": kind, "target": "header", "name": "Authorization"}
+    if kind == "caller_token":
+        source["name"] = "X-User-JWT"
+    elif kind == "secret_ref":
+        source.update(name="X-API-Key", secret_ref="example-secret")
+    else:
+        source["provider"] = "example"
+
+    with _sdk_agent_server(protocol_binding) as endpoint:
+        tool = await create_remote_agent_tool(
+            a2a_url=endpoint, name="Example Agent", credential_source=source,
+            credential_api_url="http://credentials.example.test/api/credentials", bearer_token="old-caller",
+        )
+        for caller in ("first-caller", "second-caller"):
+            _CaptureAuthorization.requests = []
+            token = current_user_token.set(caller)
+            try:
+                assert await tool.ainvoke({"message": "hello"}) == "echo: hello"
+            finally:
+                current_user_token.reset(token)
+            expected = {
+                "caller_token": caller,
+                "secret_ref": f"saved-{caller}",
+                "provider_connection": f"Bearer connected-{caller}",
+            }[kind]
+            assert len(_CaptureAuthorization.requests) >= 2  # Card discovery and A2A message.
+            for headers in _CaptureAuthorization.requests:
+                assert headers[source["name"].lower()] == expected
+                if kind != "provider_connection":
+                    assert "authorization" not in headers
+
+    if kind == "caller_token":
+        assert exchanges == []
+    else:
+        assert [caller for _, _, caller in exchanges] == ["first-caller", "second-caller"]
+        for path, body, _ in exchanges:
+            assert body["intended_use"] == "a2a_agent"
+            if kind == "secret_ref":
+                assert path == "/retrieve" and body["secret_ref"] == "example-secret"
+            else:
+                assert path == "/exchange" and body["provider"] == "example"
+
+
+async def test_secret_permission_denial_stops_a2a_requests(monkeypatch: pytest.MonkeyPatch) -> None:
+    async def deny(client: CredentialExchangeClient, path: str, json_body: dict[str, Any]) -> dict[str, Any]:
+        response = httpx.Response(403, request=httpx.Request("POST", "http://credentials.example.test/retrieve"))
+        response.raise_for_status()
+        return {}
+
+    monkeypatch.setattr(CredentialExchangeClient, "_post", deny)
+    with _sdk_agent_server() as endpoint:
+        tool = await create_remote_agent_tool(
+            a2a_url=endpoint, name="Example Agent", bearer_token="caller",
+            credential_source={"kind": "secret_ref", "target": "header", "name": "X-API-Key", "secret_ref": "example-secret"},
+            credential_api_url="http://credentials.example.test/api/credentials",
+        )
+        with pytest.raises(httpx.HTTPStatusError):
+            await tool.ainvoke({"message": "hello"})
+        assert _CaptureAuthorization.requests == []

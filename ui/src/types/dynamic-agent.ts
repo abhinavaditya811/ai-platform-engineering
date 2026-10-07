@@ -67,8 +67,17 @@ export interface RemoteAgentRegistryEntry {
   description?: string;
   endpoint?: string;
   timeout_seconds: number;
+  credential_source?: RemoteAgentCredentialSource;
   protocol_version?: string;
   protocol_bindings?: string[];
+}
+
+export interface RemoteAgentCredentialSource {
+  kind: "caller_token" | "secret_ref" | "provider_connection";
+  target: "header";
+  name: string;
+  secret_ref?: string;
+  provider?: string;
 }
 
 /** Per-row OpenFGA decisions returned by GET /api/mcp-servers (batch-checked). */

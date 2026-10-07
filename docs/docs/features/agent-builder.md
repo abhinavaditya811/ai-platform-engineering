@@ -30,8 +30,16 @@ as application code or control its deployment yourself.
 Platform admins register remote A2A endpoints in the **Remote A2A Agents**
 section of the Advanced step. Agent authors then select the registered endpoints
 each agent may call and configure a timeout for each selection. Dynamic Agents
-forwards the active caller's bearer token to the remote endpoint. The official
-A2A SDK negotiates the remote server's supported protocol binding.
+resolves authentication for every call using the configured header:
+
+- **User JWT**: the active caller's token (the default).
+- **Saved secret**: a secret selected from Credentials; each caller needs permission to use it.
+- **Connected credential**: each caller's connected account for the selected provider.
+
+`Authorization` uses the Bearer scheme; other headers receive the credential value
+directly. Only references are saved in the registry. **Discover Agent Card** and
+**Test connection** use the same authentication as tool calls. The official A2A
+SDK negotiates JSON-RPC or HTTP+JSON from the Agent Card.
 
 :::
 
@@ -132,7 +140,7 @@ and skills later without rebuilding the agent.
   endpoint and Agent Card metadata; agent documents store registry IDs rather
   than arbitrary endpoint URLs.
 - Configure `REMOTE_AGENT_URLS` as a comma-separated deployment seed when
-  needed. Seeded entries still need to be selected in the agent's Tools step.
+  needed. Seeded entries still need to be selected in the agent's Advanced step.
 - A2A tools use the official Python SDK for JSON-RPC and HTTP+JSON protocol
   negotiation, forward the caller's bearer token, and enforce the configured
   per-agent timeout.

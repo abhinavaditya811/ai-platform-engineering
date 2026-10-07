@@ -62,6 +62,7 @@ async def test_dynamic_agent_can_call_netutils_a2a_server() -> None:
             name="netutils_agent",
             description="Network utilities",
             timeout=10,
+            bearer_token="test-caller-token",
         )
         result = await tool.ainvoke({"message": "Resolve example.com"})
         assert result == "netutils result for Resolve example.com"

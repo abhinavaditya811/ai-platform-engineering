@@ -598,6 +598,7 @@ class AgentRuntime:
         self.mcp_servers = mcp_servers
         self.settings = settings or get_settings()
         self._mongo_service = mongo_service
+        self._remote_agent_versions: dict[str, str | None] = {}
         self._user = user
         self._client_context = client_context
         # Spec 102 Phase 8 / T107: prefer the per-request bearer from
@@ -1253,6 +1254,8 @@ class AgentRuntime:
             return []
 
         remote_agents = self._mongo_service.get_remote_agents_by_ids(agent_config.allowed_remote_agents)
+        versions = {item["_id"]: item.get("updated_at") for item in remote_agents}
+        self._remote_agent_versions.update({agent_id: versions.get(agent_id) for agent_id in agent_config.allowed_remote_agents})
         if not remote_agents:
             return []
 
@@ -1265,6 +1268,9 @@ class AgentRuntime:
                     name=remote_agent.get("name"),
                     description=remote_agent.get("description"),
                     bearer_token=self._auth_bearer,
+                    credential_source=remote_agent.get("credential_source"),
+                    credential_api_url=self.settings.credential_api_url,
+                    credential_service_audience=self.settings.credential_service_audience,
                     timeout=int(
                         agent_config.remote_agent_timeouts.get(
                             remote_agent["_id"], remote_agent.get("timeout_seconds", 120)
@@ -1671,8 +1677,7 @@ class AgentRuntime:
     ) -> bool:
         """Check if cached runtime is stale due to config changes.
 
-        Returns True if either the agent config or any MCP server has been
-        updated since this runtime was created.
+        Includes remote A2A registry entries selected by the parent or its subagents.
         """
         if agent_config.updated_at != self._config_updated_at:
             return True
@@ -1681,6 +1686,11 @@ class AgentRuntime:
         current_mcp_max = max((s.updated_at for s in mcp_servers), default=datetime.min.replace(tzinfo=timezone.utc))
         if current_mcp_max != self._mcp_servers_updated_at:
             return True
+        if self._mongo_service and self._remote_agent_versions:
+            entries = self._mongo_service.get_remote_agents_by_ids(list(self._remote_agent_versions))
+            versions = {entry["_id"]: entry.get("updated_at") for entry in entries}
+            if any(versions.get(agent_id) != version for agent_id, version in self._remote_agent_versions.items()):
+                return True
         return False
 
     # ─────────────────────────────────────────────────────────────────────
