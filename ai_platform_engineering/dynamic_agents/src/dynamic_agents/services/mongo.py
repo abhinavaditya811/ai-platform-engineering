@@ -240,7 +240,7 @@ class MongoDBService:
         return list(
             self._get_remote_agents_collection().find(
                 {"_id": {"$in": remote_agent_ids}, "enabled": {"$ne": False}},
-                {"_id": 1, "name": 1, "description": 1, "endpoint": 1, "timeout_seconds": 1, "credential_source": 1, "updated_at": 1},
+                {"_id": 1, "name": 1, "description": 1, "endpoint": 1, "timeout_seconds": 1, "streaming": 1, "credential_source": 1, "updated_at": 1},
             )
         )
 

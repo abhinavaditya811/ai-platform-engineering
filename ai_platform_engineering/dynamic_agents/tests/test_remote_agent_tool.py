@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import socket
 import threading
 import time
@@ -15,7 +16,7 @@ from a2a.server.agent_execution import AgentExecutor, RequestContext
 from a2a.server.events import EventQueue
 from a2a.server.request_handlers import DefaultRequestHandler
 from a2a.server.routes import create_agent_card_routes, create_jsonrpc_routes, create_rest_routes
-from a2a.server.tasks import InMemoryTaskStore
+from a2a.server.tasks import InMemoryTaskStore, TaskUpdater
 from a2a.types import (
     AgentCapabilities,
     AgentCard,
@@ -23,7 +24,13 @@ from a2a.types import (
     Message,
     Part,
     Role,
+    Task,
+    TaskState,
+    TaskStatus,
 )
+from langchain_core.messages import AIMessage
+from langgraph.graph import END, START, MessagesState, StateGraph
+from langgraph.prebuilt import ToolNode
 from starlette.applications import Starlette
 
 from dynamic_agents.auth.token_context import current_user_token
@@ -62,7 +69,9 @@ class _EchoExecutor(AgentExecutor):
 
 
 @contextmanager
-def _sdk_agent_server(protocol_binding: str = "JSONRPC"):
+def _sdk_agent_server(
+    protocol_binding: str = "JSONRPC", executor: AgentExecutor | None = None, streaming: bool = False
+):
     with socket.socket() as sock:
         sock.bind(("127.0.0.1", 0))
         port = sock.getsockname()[1]
@@ -71,24 +80,28 @@ def _sdk_agent_server(protocol_binding: str = "JSONRPC"):
         name="Example Echo Agent",
         description="Echoes a message.",
         version="1.0.0",
-        capabilities=AgentCapabilities(),
+        capabilities=AgentCapabilities(streaming=streaming),
         default_input_modes=["text/plain"],
         default_output_modes=["text/plain"],
-        supported_interfaces=[
-            AgentInterface(url=endpoint, protocol_binding=protocol_binding, protocol_version="1.0")
-        ],
+        supported_interfaces=[AgentInterface(url=endpoint, protocol_binding=protocol_binding, protocol_version="1.0")],
     )
     handler = DefaultRequestHandler(
-        agent_executor=_EchoExecutor(),
+        agent_executor=executor or _EchoExecutor(),
         task_store=InMemoryTaskStore(),
         agent_card=card,
     )
-    app = _CaptureAuthorization(Starlette(
-        routes=[
-            *create_agent_card_routes(card),
-            *(create_jsonrpc_routes(handler, rpc_url="/") if protocol_binding == "JSONRPC" else create_rest_routes(handler)),
-        ]
-    ))
+    app = _CaptureAuthorization(
+        Starlette(
+            routes=[
+                *create_agent_card_routes(card),
+                *(
+                    create_jsonrpc_routes(handler, rpc_url="/")
+                    if protocol_binding == "JSONRPC"
+                    else create_rest_routes(handler)
+                ),
+            ]
+        )
+    )
     _CaptureAuthorization.authorization = None
     _CaptureAuthorization.requests = []
     server = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=port, log_level="critical"))
@@ -138,8 +151,12 @@ def test_sync_run_is_not_supported():
 
 @pytest.mark.parametrize("protocol_binding", ["JSONRPC", "HTTP+JSON"])
 @pytest.mark.parametrize("kind", ["caller_token", "secret_ref", "provider_connection"])
+@pytest.mark.parametrize("streaming", [False, True])
 async def test_selected_auth_reaches_card_and_agent_and_resolves_each_caller(
-    monkeypatch: pytest.MonkeyPatch, protocol_binding: str, kind: str,
+    monkeypatch: pytest.MonkeyPatch,
+    protocol_binding: str,
+    kind: str,
+    streaming: bool,
 ) -> None:
     exchanges: list[tuple[str, dict[str, Any], str]] = []
 
@@ -159,16 +176,23 @@ async def test_selected_auth_reaches_card_and_agent_and_resolves_each_caller(
     else:
         source["provider"] = "example"
 
-    with _sdk_agent_server(protocol_binding) as endpoint:
+    with _sdk_agent_server(
+        protocol_binding, executor=_StreamingExecutor() if streaming else None, streaming=streaming
+    ) as endpoint:
         tool = await create_remote_agent_tool(
-            a2a_url=endpoint, name="Example Agent", credential_source=source,
-            credential_api_url="http://credentials.example.test/api/credentials", bearer_token="old-caller",
+            a2a_url=endpoint,
+            name="Example Agent",
+            credential_source=source,
+            credential_api_url="http://credentials.example.test/api/credentials",
+            bearer_token="old-caller",
+            streaming=streaming,
         )
         for caller in ("first-caller", "second-caller"):
             _CaptureAuthorization.requests = []
             token = current_user_token.set(caller)
             try:
-                assert await tool.ainvoke({"message": "hello"}) == "echo: hello"
+                expected_text = "first second" if streaming else "echo: hello"
+                assert await tool.ainvoke({"message": "hello"}) == expected_text
             finally:
                 current_user_token.reset(token)
             expected = {
@@ -203,10 +227,76 @@ async def test_secret_permission_denial_stops_a2a_requests(monkeypatch: pytest.M
     monkeypatch.setattr(CredentialExchangeClient, "_post", deny)
     with _sdk_agent_server() as endpoint:
         tool = await create_remote_agent_tool(
-            a2a_url=endpoint, name="Example Agent", bearer_token="caller",
-            credential_source={"kind": "secret_ref", "target": "header", "name": "X-API-Key", "secret_ref": "example-secret"},
+            a2a_url=endpoint,
+            name="Example Agent",
+            bearer_token="caller",
+            credential_source={
+                "kind": "secret_ref",
+                "target": "header",
+                "name": "X-API-Key",
+                "secret_ref": "example-secret",
+            },
             credential_api_url="http://credentials.example.test/api/credentials",
         )
         with pytest.raises(httpx.HTTPStatusError):
             await tool.ainvoke({"message": "hello"})
         assert _CaptureAuthorization.requests == []
+
+
+class _StreamingExecutor(AgentExecutor):
+    async def execute(self, context: RequestContext, event_queue: EventQueue) -> None:
+        updater = TaskUpdater(event_queue, context.task_id, context.context_id)
+        await event_queue.enqueue_event(
+            Task(
+                id=context.task_id,
+                context_id=context.context_id,
+                status=TaskStatus(state=TaskState.TASK_STATE_SUBMITTED),
+            )
+        )
+        await updater.start_work()
+        await updater.add_artifact([Part(text="first ")], artifact_id="answer", append=False)
+        await asyncio.sleep(0.15)
+        await updater.add_artifact([Part(text="second")], artifact_id="answer", append=True, last_chunk=True)
+        await updater.complete()
+
+    async def cancel(self, context: RequestContext, event_queue: EventQueue) -> None:
+        return None
+
+
+@pytest.mark.parametrize("binding", ["JSONRPC", "HTTP+JSON"])
+async def test_streamed_sdk_artifacts_reach_graph_before_tool_completion(binding: str) -> None:
+    with _sdk_agent_server(binding, executor=_StreamingExecutor(), streaming=True) as endpoint:
+        tool = await create_remote_agent_tool(a2a_url=endpoint, name="remote", streaming=True, bearer_token="caller")
+        builder = StateGraph(MessagesState)
+        builder.add_node("tools", ToolNode([tool]))
+        builder.add_edge(START, "tools")
+        builder.add_edge("tools", END)
+        graph = builder.compile()
+        events = []
+        async for mode, data in graph.astream(
+            {
+                "messages": [
+                    AIMessage(
+                        content="",
+                        tool_calls=[
+                            {"name": "remote", "args": {"message": "hello"}, "id": "call-stream", "type": "tool_call"},
+                        ],
+                    )
+                ]
+            },
+            stream_mode=["custom", "updates"],
+        ):
+            events.append((mode, data))
+        assert [data["result"] for mode, data in events if mode == "custom"] == ["first ", "first second"]
+        assert events[0][0] == "custom"
+        assert events[-1][0] == "updates"
+        assert events[-1][1]["tools"]["messages"][0].content == "first second"
+        assert _CaptureAuthorization.requests
+        assert all(headers.get("authorization") == "Bearer caller" for headers in _CaptureAuthorization.requests)
+        assert tool.tool_call_schema.model_json_schema()["properties"].keys() == {"message"}
+
+
+async def test_streaming_opt_in_falls_back_for_non_streaming_card() -> None:
+    with _sdk_agent_server() as endpoint:
+        tool = await create_remote_agent_tool(a2a_url=endpoint, streaming=True, bearer_token="caller")
+        assert await tool.ainvoke({"message": "hello"}) == "echo: hello"

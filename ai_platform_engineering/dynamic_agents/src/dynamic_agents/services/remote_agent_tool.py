@@ -10,9 +10,10 @@ from urllib.parse import urlparse
 import httpx
 from a2a.client import ClientCallContext, ClientCallInterceptor, ClientConfig, ClientFactory
 from a2a.client.interceptors import AfterArgs, BeforeArgs
-from a2a.types import Message, Part, Role, SendMessageRequest
+from a2a.types import Message, Part, Role, SendMessageRequest, TaskState
 from langchain_core.tools import BaseTool
-from pydantic import BaseModel, Field
+from langgraph.prebuilt import ToolRuntime
+from pydantic import BaseModel, ConfigDict, Field
 
 from dynamic_agents.auth.token_context import current_user_token
 from dynamic_agents.models import RemoteAgentCredentialSource
@@ -42,28 +43,61 @@ def _text_parts(message: Any) -> list[str]:
     return [part.text for part in parts if getattr(part, "text", None)]
 
 
-def _response_text(response: Any) -> list[str]:
-    """Extract visible output from SDK direct-message and task responses."""
-    texts: list[str] = []
-    if _field_is_set(response, "message"):
-        texts.extend(_text_parts(response.message))
-    if _field_is_set(response, "task"):
-        task = response.task
-        for artifact in getattr(task, "artifacts", None) or []:
-            texts.extend(_text_parts(artifact))
-        status = getattr(task, "status", None)
+class _RemoteOutput:
+    """Accumulate artifact snapshots and append chunks without duplicating output."""
+
+    def __init__(self) -> None:
+        self.artifacts: dict[str, str] = {}
+        self.messages: list[str] = []
+        self.status_text = ""
+        self.stream_seen = False
+        self.finished = False
+
+    @property
+    def text(self) -> str:
+        return "\n".join([*self.messages, *self.artifacts.values()]) or self.status_text
+
+    def update(self, response: Any) -> bool:
+        before = self.text
+        if _field_is_set(response, "message"):
+            self.messages.append("\n".join(_text_parts(response.message)))
+        if _field_is_set(response, "task"):
+            for artifact in response.task.artifacts:
+                self.artifacts[artifact.artifact_id] = "".join(_text_parts(artifact))
+        if _field_is_set(response, "artifact_update"):
+            self.stream_seen = True
+            update = response.artifact_update
+            artifact = update.artifact
+            text = "".join(_text_parts(artifact))
+            self.artifacts[artifact.artifact_id] = (
+                self.artifacts.get(artifact.artifact_id, "") + text if update.append else text
+            )
+        status = None
+        if _field_is_set(response, "status_update"):
+            self.stream_seen = True
+            status = response.status_update.status
+        elif _field_is_set(response, "task"):
+            status = response.task.status
         if status is not None and _field_is_set(status, "message"):
-            texts.extend(_text_parts(status.message))
-    if _field_is_set(response, "artifact_update"):
-        texts.extend(_text_parts(response.artifact_update.artifact))
-    if _field_is_set(response, "status_update"):
-        status = response.status_update.status
-        if _field_is_set(status, "message"):
-            texts.extend(_text_parts(status.message))
-    return texts
+            self.status_text = "\n".join(_text_parts(status.message))
+        if status is not None:
+            if status.state in {
+                TaskState.TASK_STATE_FAILED,
+                TaskState.TASK_STATE_CANCELED,
+                TaskState.TASK_STATE_REJECTED,
+            }:
+                raise RuntimeError(self.status_text or "Remote A2A task failed or was canceled")
+            self.finished = status.state in {
+                TaskState.TASK_STATE_COMPLETED,
+                TaskState.TASK_STATE_INPUT_REQUIRED,
+                TaskState.TASK_STATE_AUTH_REQUIRED,
+            }
+        return self.text != before
 
 
 class _RemoteAgentInput(BaseModel):
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+    runtime: ToolRuntime = None
     message: str = Field(description="The message to send to the remote agent")
 
 
@@ -140,10 +174,11 @@ class RemoteAgentTool(BaseTool):
     credential_api_url: str | None = None
     credential_service_audience: str = "caipe-credential-service"
     timeout: int = 120
+    streaming: bool = False
 
     args_schema: type[BaseModel] = _RemoteAgentInput
 
-    def _run(self, message: str) -> str:
+    def _run(self, message: str, runtime: ToolRuntime | None = None) -> str:
         raise NotImplementedError("RemoteAgentTool is async-only; use ainvoke()")
 
     async def _resolve_auth_headers(self, caller_token: str | None) -> dict[str, str]:
@@ -154,7 +189,7 @@ class RemoteAgentTool(BaseTool):
             credential_service_audience=self.credential_service_audience,
         )
 
-    async def _arun(self, message: str) -> str:
+    async def _arun(self, message: str, runtime: ToolRuntime | None = None) -> str:
         # The runtime cache outlives individual requests, so resolve caller-scoped
         # auth at tool-call time using the active request token.
         token = current_user_token.get() or self.bearer_token
@@ -163,7 +198,7 @@ class RemoteAgentTool(BaseTool):
         async with httpx.AsyncClient(timeout=timeout, headers=headers) as http_client:
             factory = ClientFactory(
                 ClientConfig(
-                    streaming=False,
+                    streaming=self.streaming,
                     supported_protocol_bindings=["JSONRPC", "HTTP+JSON"],
                     httpx_client=http_client,
                 )
@@ -181,11 +216,17 @@ class RemoteAgentTool(BaseTool):
                         parts=[Part(text=message)],
                     )
                 )
-                results: list[str] = []
+                output = _RemoteOutput()
                 context = ClientCallContext(timeout=float(self.timeout))
                 async for response in client.send_message(request, context=context):
-                    results.extend(_response_text(response))
-                return "\n".join(results) or "Remote agent returned no text response."
+                    changed = output.update(response)
+                    if changed and self.streaming and runtime and runtime.tool_call_id:
+                        runtime.stream_writer(
+                            {"type": "tool_output", "tool_call_id": runtime.tool_call_id, "result": output.text}
+                        )
+                if output.stream_seen and not output.finished:
+                    raise RuntimeError("Remote A2A stream ended before the task completed")
+                return output.text or "Remote agent returned no text response."
             finally:
                 await client.close()
 
@@ -200,6 +241,7 @@ async def create_remote_agent_tool(
     credential_api_url: str | None = None,
     credential_service_audience: str = "caipe-credential-service",
     timeout: int = 120,
+    streaming: bool = False,
 ) -> RemoteAgentTool:
     """Create a tool from registry metadata; SDK handles protocol negotiation.
 
@@ -211,6 +253,7 @@ async def create_remote_agent_tool(
         credential_source: Header authentication source configured for this endpoint.
         credential_api_url: Credential service URL used for secrets and OAuth connections.
         credential_service_audience: Credential service audience.
+        streaming: Request streaming when supported by the Agent Card.
         timeout: Per-request timeout in seconds, configured in the UI registry.
     """
     safe_name = _sanitize_tool_name(name or "") or _sanitize_tool_name(urlparse(a2a_url).hostname or "")
@@ -223,4 +266,5 @@ async def create_remote_agent_tool(
         credential_api_url=credential_api_url,
         credential_service_audience=credential_service_audience,
         timeout=timeout,
+        streaming=streaming,
     )

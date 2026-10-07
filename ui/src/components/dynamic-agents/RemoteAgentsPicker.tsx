@@ -27,11 +27,12 @@ export function RemoteAgentsPicker({ value, onChange, timeoutValues, onTimeoutCh
   const [endpoint, setEndpoint] = React.useState("");
   const [description, setDescription] = React.useState("");
   const [timeoutSeconds, setTimeoutSeconds] = React.useState(120);
+  const [streaming, setStreaming] = React.useState(false);
   const [credentialSource, setCredentialSource] = React.useState<RemoteAgentCredentialSource>(defaultRemoteAgentAuth);
   const [probing, setProbing] = React.useState(false);
-  const [probedCard, setProbedCard] = React.useState<{ protocol_version?: string; protocol_bindings?: string[] } | null>(null);
+  const [probedCard, setProbedCard] = React.useState<{ protocol_version?: string; protocol_bindings?: string[]; supports_streaming?: boolean } | null>(null);
   const [editingId, setEditingId] = React.useState<string | null>(null);
-  const [editValues, setEditValues] = React.useState({ name: "", endpoint: "", description: "", timeout_seconds: 120, credential_source: defaultRemoteAgentAuth() });
+  const [editValues, setEditValues] = React.useState({ name: "", endpoint: "", description: "", timeout_seconds: 120, streaming: false, credential_source: defaultRemoteAgentAuth() });
 
   const loadItems = React.useCallback(async () => {
     setLoading(true);
@@ -72,7 +73,7 @@ export function RemoteAgentsPicker({ value, onChange, timeoutValues, onTimeoutCh
       } else {
         setName(data.data.name || "");
         setDescription(data.data.description || "");
-        setProbedCard({ protocol_version: data.data.protocol_version, protocol_bindings: data.data.protocol_bindings });
+        setProbedCard({ protocol_version: data.data.protocol_version, protocol_bindings: data.data.protocol_bindings, supports_streaming: data.data.supports_streaming });
         toast("A2A Agent Card found. Review the metadata, then add the agent to the registry.", "success");
       }
     } catch (error) {
@@ -90,13 +91,13 @@ export function RemoteAgentsPicker({ value, onChange, timeoutValues, onTimeoutCh
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name, endpoint, description, timeout_seconds: timeoutSeconds, credential_source: credentialSource, ...probedCard }),
+        body: JSON.stringify({ name, endpoint, description, timeout_seconds: timeoutSeconds, streaming, credential_source: credentialSource, ...probedCard }),
       });
       const data = await response.json();
       if (!response.ok || !data.success) throw new Error(data.error || "Failed to add remote agent");
       setItems((current) => [...current, data.data].sort((a, b) => a.name.localeCompare(b.name)));
       onChange([...new Set([...value, data.data._id])]);
-      setName(""); setEndpoint(""); setDescription(""); setTimeoutSeconds(120); setProbedCard(null);
+      setName(""); setEndpoint(""); setDescription(""); setTimeoutSeconds(120); setStreaming(false); setProbedCard(null);
       setCredentialSource(defaultRemoteAgentAuth());
       toast("Remote A2A agent added", "success");
     } catch (error) {
@@ -156,12 +157,13 @@ export function RemoteAgentsPicker({ value, onChange, timeoutValues, onTimeoutCh
                 <input aria-label={`Allow ${item.name}`} type="checkbox" className="mt-1 h-4 w-4 accent-primary" checked={value.includes(item._id)} disabled={disabled} onChange={() => toggle(item._id)} />
                 <div className="min-w-0 flex-1">
                   <div className="font-medium">{item.name}</div>
+                  {item.streaming && <span className="text-xs text-muted-foreground">Streaming enabled</span>}
                   {item.description && <p className="text-xs text-muted-foreground">{item.description}</p>}
                   {canManage && item.endpoint && <p className="mt-1 truncate font-mono text-xs text-muted-foreground">{item.endpoint}</p>}
                   <div className="mt-3 flex items-end gap-2">
                     <div className="w-36"><Label htmlFor={`timeout-${item._id}`} className="text-xs">Timeout (seconds)</Label><Input id={`timeout-${item._id}`} type="number" min={1} max={600} value={timeoutValues[item._id] ?? item.timeout_seconds ?? 120} disabled={disabled || !value.includes(item._id)} onChange={(event) => onTimeoutChange(item._id, Number(event.target.value))} /></div>
                     {canManage && <>
-                      <Button type="button" variant="ghost" size="sm" disabled={disabled || saving} onClick={() => { setEditingId(item._id); setEditValues({ name: item.name, endpoint: item.endpoint || "", description: item.description || "", timeout_seconds: item.timeout_seconds || 120, credential_source: item.credential_source || defaultRemoteAgentAuth() }); }} aria-label={`Edit ${item.name}`}><Pencil className="h-4 w-4" /></Button>
+                      <Button type="button" variant="ghost" size="sm" disabled={disabled || saving} onClick={() => { setEditingId(item._id); setEditValues({ name: item.name, endpoint: item.endpoint || "", description: item.description || "", timeout_seconds: item.timeout_seconds || 120, streaming: item.streaming === true, credential_source: item.credential_source || defaultRemoteAgentAuth() }); }} aria-label={`Edit ${item.name}`}><Pencil className="h-4 w-4" /></Button>
                       <Button type="button" variant="ghost" size="sm" disabled={disabled || saving} onClick={() => void removeRemoteAgent(item)} aria-label={`Remove ${item.name}`}><Trash2 className="h-4 w-4" /></Button>
                     </>}
                   </div>
@@ -183,6 +185,8 @@ export function RemoteAgentsPicker({ value, onChange, timeoutValues, onTimeoutCh
                     <div className="space-y-1"><Label htmlFor={`edit-remote-agent-description-${item._id}`}>Description</Label><Input id={`edit-remote-agent-description-${item._id}`} value={editValues.description} onChange={(event) => setEditValues((current) => ({ ...current, description: event.target.value }))} /></div>
                     <div className="space-y-1"><Label htmlFor={`edit-remote-agent-timeout-${item._id}`}>Default timeout (seconds)</Label><Input id={`edit-remote-agent-timeout-${item._id}`} type="number" min={1} max={600} value={editValues.timeout_seconds} onChange={(event) => setEditValues((current) => ({ ...current, timeout_seconds: Number(event.target.value) }))} /></div>
                   </div>
+                  <label className="flex items-center gap-2 text-sm"><input id={`edit-remote-agent-streaming-${item._id}`} type="checkbox" className="h-4 w-4 accent-primary" checked={editValues.streaming} disabled={disabled || saving} onChange={(event) => setEditValues((current) => ({ ...current, streaming: event.target.checked }))} />Stream responses</label>
+                  <p className="text-xs text-muted-foreground">Show remote output as it arrives. Agents without streaming support return a complete response.</p>
                   <RemoteAgentAuthFields
                     value={editValues.credential_source}
                     onChange={(source) => setEditValues((current) => ({ ...current, credential_source: source }))}
@@ -217,6 +221,8 @@ export function RemoteAgentsPicker({ value, onChange, timeoutValues, onTimeoutCh
             <div className="space-y-1"><Label htmlFor="remote-agent-description">Description</Label><Input id="remote-agent-description" value={description} onChange={(event) => setDescription(event.target.value)} /></div>
             <div className="space-y-1"><Label htmlFor="remote-agent-timeout">Timeout (seconds, 1–600)</Label><Input id="remote-agent-timeout" type="number" min={1} max={600} value={timeoutSeconds} onChange={(event) => setTimeoutSeconds(Number(event.target.value))} /></div>
           </div>
+          <label className="flex items-center gap-2 text-sm"><input id="remote-agent-streaming" type="checkbox" className="h-4 w-4 accent-primary" checked={streaming} disabled={saving} onChange={(event) => setStreaming(event.target.checked)} />Stream responses</label>
+          <p className="text-xs text-muted-foreground">Show remote output as it arrives. Agents without streaming support return a complete response.</p>
           <RemoteAgentAuthFields
             value={credentialSource}
             onChange={(source) => { setCredentialSource(source); setProbedCard(null); }}
@@ -226,7 +232,7 @@ export function RemoteAgentsPicker({ value, onChange, timeoutValues, onTimeoutCh
           <div className="flex flex-wrap items-center gap-2">
             <Button type="button" size="sm" variant="outline" disabled={probing || !endpoint.trim() || !isRemoteAgentAuthConfigured(credentialSource)} onClick={() => void probeEndpoint()}>{probing ? "Probing…" : "Discover Agent Card"}</Button>
             <Button type="button" size="sm" disabled={saving || !name.trim() || !endpoint.trim() || !isRemoteAgentAuthConfigured(credentialSource)} onClick={() => void addRemoteAgent()}><Plus className="mr-2 h-4 w-4" />{saving ? "Adding…" : "Add and select"}</Button>
-            {probedCard?.protocol_bindings?.length ? <span className="text-xs text-muted-foreground">A2A {probedCard.protocol_version || ""} · {probedCard.protocol_bindings.join(", ")}</span> : null}
+            {probedCard?.protocol_bindings?.length ? <span className="text-xs text-muted-foreground">A2A {probedCard.protocol_version || ""} · {probedCard.protocol_bindings.join(", ")} · {probedCard.supports_streaming ? "Streaming available" : "Complete responses only"}</span> : null}
           </div>
         </div>
       )}

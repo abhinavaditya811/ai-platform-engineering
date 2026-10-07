@@ -21,6 +21,7 @@ interface RemoteAgentDocument extends Document {
   description?: string;
   endpoint?: string;
   timeout_seconds: number;
+  streaming?: boolean;
   credential_source?: RemoteAgentCredentialSource;
   protocol_version?: string;
   protocol_bindings?: string[];
@@ -113,6 +114,7 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
     name: 1,
     description: 1,
     timeout_seconds: 1,
+    streaming: 1,
     protocol_version: 1,
     protocol_bindings: 1,
     ...(canManage ? { endpoint: 1, credential_source: 1 } : {}),
@@ -132,6 +134,9 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
   const endpoint = normalizeEndpoint(body.endpoint);
   const timeout_seconds = normalizeTimeout(body.timeout_seconds);
   const credential_source = normalizeRemoteAgentCredentialSource(body.credential_source);
+  if (body.streaming !== undefined && typeof body.streaming !== "boolean") {
+    throw new ApiError("Streaming must be a boolean", 400, "INVALID_REMOTE_AGENT_STREAMING");
+  }
   const id = `remote-${slugify(name)}`;
   if (id === "remote-") throw new ApiError("Name must include letters or numbers", 400, "INVALID_REMOTE_AGENT");
 
@@ -146,6 +151,7 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
     description: typeof body.description === "string" ? body.description.trim() : "",
     endpoint,
     timeout_seconds,
+    streaming: body.streaming === true,
     credential_source,
     protocol_version: typeof body.protocol_version === "string" ? body.protocol_version : undefined,
     protocol_bindings: Array.isArray(body.protocol_bindings) ? body.protocol_bindings.filter((item): item is string => typeof item === "string") : [],

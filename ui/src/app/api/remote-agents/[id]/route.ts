@@ -31,6 +31,12 @@ export const PUT = withErrorHandler(async (request: NextRequest, context: { para
     }
     update.timeout_seconds = timeout;
   }
+  if (body.streaming !== undefined) {
+    if (typeof body.streaming !== "boolean") {
+      throw new ApiError("Streaming must be a boolean", 400, "INVALID_REMOTE_AGENT_STREAMING");
+    }
+    update.streaming = body.streaming;
+  }
   if (body.name !== undefined) {
     if (typeof body.name !== "string" || !body.name.trim()) {
       throw new ApiError("Name is required", 400, "INVALID_REMOTE_AGENT");

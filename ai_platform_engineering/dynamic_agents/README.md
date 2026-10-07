@@ -414,6 +414,9 @@ dynamic_agents/
 - Register endpoints in **Agents > Advanced > Remote A2A Agents** as a platform admin.
 - Select multiple registry entries for an agent or its subagents. Each entry becomes a callable tool.
 - Configure a default timeout (1–600 seconds); agent authors can override it per selection.
+- Check **Stream responses** when adding or editing a registry entry to opt into A2A streaming. It defaults to off and applies to callers of that entry.
+- Streaming uses the official SDK and Agent Card capability negotiation. Endpoints without streaming support return complete responses.
+- Remote text appears progressively in the running tool output panel, including calls from subagents. Artifact append/replacement semantics are preserved; the completed result is passed to the parent agent. Disconnected/failed streams surface errors rather than successful partial answers.
 - Choose **User JWT**, **Saved secret**, or **Connected credential**, then set the header name.
 - `Authorization` sends a Bearer token; other headers receive the value directly.
 - Saved secrets require the invoking caller's use permission. Connected credentials resolve the invoking caller's own provider account.

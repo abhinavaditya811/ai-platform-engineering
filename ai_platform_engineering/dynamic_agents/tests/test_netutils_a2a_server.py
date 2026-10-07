@@ -2,14 +2,17 @@
 
 from __future__ import annotations
 
+import asyncio
 import socket
 import threading
 import time
+from collections.abc import AsyncIterator
 from types import SimpleNamespace
 
 import httpx
 import pytest
 import uvicorn
+from langchain_core.messages import AIMessageChunk
 
 from dynamic_agents.netutils_agent.server import create_app
 from dynamic_agents.services.remote_agent_tool import create_remote_agent_tool
@@ -18,6 +21,15 @@ from dynamic_agents.services.remote_agent_tool import create_remote_agent_tool
 class _FakeNetutilsAgent:
     def __init__(self) -> None:
         self.messages: list[str] = []
+
+    async def astream(
+        self, input: dict[str, object], stream_mode: str
+    ) -> AsyncIterator[tuple[AIMessageChunk, dict[str, object]]]:
+        result = await self.ainvoke(input)
+        text = result["messages"][0].content
+        for content in (text[:15], text[15:]):
+            yield AIMessageChunk(content=content), {}
+            await asyncio.sleep(0.01)
 
     async def ainvoke(self, input: dict[str, object]) -> dict[str, object]:
         messages = input["messages"]
@@ -37,14 +49,17 @@ async def test_health_endpoint_needs_no_query_parameters() -> None:
 
 
 @pytest.mark.asyncio
-async def test_dynamic_agent_can_call_netutils_a2a_server() -> None:
+@pytest.mark.parametrize("streaming", [False, True])
+async def test_dynamic_agent_can_call_netutils_a2a_server(streaming: bool) -> None:
     with socket.socket() as sock:
         sock.bind(("127.0.0.1", 0))
         port = sock.getsockname()[1]
     endpoint = f"http://127.0.0.1:{port}/"
     netutils_agent = _FakeNetutilsAgent()
     server = uvicorn.Server(
-        uvicorn.Config(create_app(agent=netutils_agent, agent_url=endpoint), host="127.0.0.1", port=port, log_level="critical")
+        uvicorn.Config(
+            create_app(agent=netutils_agent, agent_url=endpoint), host="127.0.0.1", port=port, log_level="critical"
+        )
     )
     thread = threading.Thread(target=server.run, daemon=True)
     thread.start()
@@ -62,6 +77,7 @@ async def test_dynamic_agent_can_call_netutils_a2a_server() -> None:
             name="netutils_agent",
             description="Network utilities",
             timeout=10,
+            streaming=streaming,
             bearer_token="test-caller-token",
         )
         result = await tool.ainvoke({"message": "Resolve example.com"})

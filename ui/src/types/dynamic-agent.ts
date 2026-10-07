@@ -67,6 +67,7 @@ export interface RemoteAgentRegistryEntry {
   description?: string;
   endpoint?: string;
   timeout_seconds: number;
+  streaming?: boolean;
   credential_source?: RemoteAgentCredentialSource;
   protocol_version?: string;
   protocol_bindings?: string[];

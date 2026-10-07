@@ -1269,6 +1269,7 @@ class AgentRuntime:
                     description=remote_agent.get("description"),
                     bearer_token=self._auth_bearer,
                     credential_source=remote_agent.get("credential_source"),
+                    streaming=remote_agent.get("streaming") is True,
                     credential_api_url=self.settings.credential_api_url,
                     credential_service_audience=self.settings.credential_service_audience,
                     timeout=int(

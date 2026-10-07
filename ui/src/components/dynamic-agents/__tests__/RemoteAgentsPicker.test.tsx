@@ -71,6 +71,8 @@ describe("RemoteAgentsPicker", () => {
     fireEvent.click(screen.getByRole("button", { name: "Discover Agent Card" }));
 
     expect(await screen.findByDisplayValue("Example Agent")).toBeInTheDocument();
+    expect(screen.getByRole("checkbox", { name: "Stream responses" })).not.toBeChecked();
+    fireEvent.click(screen.getByRole("checkbox", { name: "Stream responses" }));
     fireEvent.click(screen.getByRole("button", { name: "Add and select" }));
 
     await waitFor(() => {
@@ -80,6 +82,8 @@ describe("RemoteAgentsPicker", () => {
       );
       expect(onChange).toHaveBeenCalledWith(["remote-example-agent"]);
     });
+    const posted = fetchMock.mock.calls.find(([, init]) => init?.method === "POST" && JSON.parse(init.body as string).streaming === true);
+    expect(posted).toBeDefined();
     expect(onParentSubmit).not.toHaveBeenCalled();
   });
   it.each(["secret_ref", "provider_connection"])("saves the selected %s authentication reference", async (kind) => {

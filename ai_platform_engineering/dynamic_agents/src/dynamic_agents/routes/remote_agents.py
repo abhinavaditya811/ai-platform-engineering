@@ -31,6 +31,7 @@ class RemoteAgentProbeResponse(BaseModel):
     description: str
     protocol_version: str | None = None
     protocol_bindings: list[str]
+    supports_streaming: bool = False
 
 
 @router.post("/probe", response_model=RemoteAgentProbeResponse)
@@ -60,6 +61,7 @@ async def probe_remote_agent(
 
     interfaces = list(getattr(card, "supported_interfaces", []) or [])
     return RemoteAgentProbeResponse(
+        supports_streaming=card.capabilities.streaming,
         name=card.name,
         description=card.description,
         protocol_version=interfaces[0].protocol_version if interfaces else None,
