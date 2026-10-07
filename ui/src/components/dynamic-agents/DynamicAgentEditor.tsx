@@ -183,7 +183,7 @@ const STEPS = [
   {
     id: "advanced" as const,
     label: "Advanced",
-    hint: "Subagents, approval rules, and middleware",
+    hint: "Subagents, remote agents, approval rules, and middleware",
   },
 ];
 
@@ -286,6 +286,10 @@ function AdvancedStep({
   agent,
   subagents,
   setSubagents,
+  allowedRemoteAgents,
+  setAllowedRemoteAgents,
+  remoteAgentTimeouts,
+  setRemoteAgentTimeouts,
   interruptOn,
   setInterruptOn,
   allowedTools,
@@ -301,6 +305,10 @@ function AdvancedStep({
   agent: DynamicAgentConfig | null;
   subagents: SubAgentRef[];
   setSubagents: (v: SubAgentRef[]) => void;
+  allowedRemoteAgents: string[];
+  setAllowedRemoteAgents: (v: string[]) => void;
+  remoteAgentTimeouts: Record<string, number>;
+  setRemoteAgentTimeouts: React.Dispatch<React.SetStateAction<Record<string, number>>>;
   interruptOn: InterruptOn;
   setInterruptOn: (v: InterruptOn) => void;
   allowedTools: Record<string, string[] | boolean>;
@@ -318,6 +326,7 @@ function AdvancedStep({
     0,
   );
   const workflowCount = builtinTools?.workflows?.length ?? 0;
+  const remoteAgentCount = allowedRemoteAgents.length;
 
   return (
     <div className="space-y-4 pt-2">
@@ -338,6 +347,23 @@ function AdvancedStep({
           onChange={setSubagents}
           disabled={loading}
           parentVisibility={visibility}
+        />
+      </CollapsibleSection>
+
+      <CollapsibleSection
+        title="Remote A2A Agents"
+        description="Call agents registered with the A2A protocol"
+        badge={`${remoteAgentCount} selected`}
+        defaultExpanded
+      >
+        <RemoteAgentsPicker
+          value={allowedRemoteAgents}
+          onChange={setAllowedRemoteAgents}
+          timeoutValues={remoteAgentTimeouts}
+          onTimeoutChange={(id, seconds) =>
+            setRemoteAgentTimeouts((current) => ({ ...current, [id]: seconds }))
+          }
+          disabled={loading}
         />
       </CollapsibleSection>
 
@@ -2369,15 +2395,6 @@ export function DynamicAgentEditor({
                     onChange={setAllowedTools}
                     disabled={loading || !!readOnly}
                   />
-                  <div className="border-t pt-4">
-                    <RemoteAgentsPicker
-                      value={allowedRemoteAgents}
-                      onChange={setAllowedRemoteAgents}
-                      timeoutValues={remoteAgentTimeouts}
-                      onTimeoutChange={(id, seconds) => setRemoteAgentTimeouts((current) => ({ ...current, [id]: seconds }))}
-                      disabled={loading || !!readOnly}
-                    />
-                  </div>
                 </div>
               </div>
             )}
@@ -2470,6 +2487,10 @@ export function DynamicAgentEditor({
                 agent={agent}
                 subagents={subagents}
                 setSubagents={setSubagents}
+                allowedRemoteAgents={allowedRemoteAgents}
+                setAllowedRemoteAgents={setAllowedRemoteAgents}
+                remoteAgentTimeouts={remoteAgentTimeouts}
+                setRemoteAgentTimeouts={setRemoteAgentTimeouts}
                 interruptOn={interruptOn}
                 setInterruptOn={setInterruptOn}
                 allowedTools={allowedTools}

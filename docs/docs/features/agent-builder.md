@@ -28,7 +28,7 @@ as application code or control its deployment yourself.
 :::note Remote A2A tools
 
 Platform admins register remote A2A endpoints in the **Remote A2A Agents**
-section of the Tools step. Agent authors then select the registered endpoints
+section of the Advanced step. Agent authors then select the registered endpoints
 each agent may call and configure a timeout for each selection. Dynamic Agents
 forwards the active caller's bearer token to the remote endpoint. The official
 A2A SDK negotiates the remote server's supported protocol binding.
@@ -103,10 +103,10 @@ Agent Builder guides you through six steps:
 |------|-----------|
 | **Basic Info** | Name, description, owner team, and team or global visibility |
 | **Instructions** | System prompt, model, and model parameters |
-| **Tools** | Registered MCP tools, selected remote A2A agents, and CAIPE built-in tools |
+| **Tools** | Registered MCP tools and CAIPE built-in tools |
 | **Knowledge** | Individual data sources and reusable collections |
 | **Skills** | Reusable instructions and packaged capabilities |
-| **Advanced** | Subagents, human approval rules, middleware, and workflow access |
+| **Advanced** | Subagents, remote A2A agents, human approval rules, middleware, and workflow access |
 
 After you save an agent, you can test it in chat without redeploying the runtime.
 You can also clone it, enable or disable it, and export it as YAML.
