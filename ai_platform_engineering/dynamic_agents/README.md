@@ -420,4 +420,24 @@ dynamic_agents/
 - Set `CREDENTIAL_API_URL` to the UI credential API (for example `http://caipe-ui:3000/api/credentials`) for secrets and connected accounts. `CREDENTIAL_SERVICE_AUDIENCE` defaults to `caipe-credential-service`.
 - Credentials resolve on every invocation. Registry edits invalidate cached runtimes on the next request.
 - Agent Card discovery and calls use the official A2A SDK with JSON-RPC or HTTP+JSON negotiation.
-- Endpoints are called directly; `AGENT_GATEWAY_URL` configures MCP routing only.
+- Calls use the registered endpoint. Register a gateway URL to gate A2A calls; `AGENT_GATEWAY_URL` configures MCP routing only.
+
+### Local examples: direct Netutils and Weather through AgentGateway
+
+- Start the optional examples alongside the authenticated UI and Dynamic Agents:
+  `docker compose -f docker-compose.dev.yaml --profile rbac --profile dynamic-agents --profile netutils-agent --profile weather-agent up -d`.
+- Weather uses the same LLM settings as Dynamic Agents and the public Open-Meteo APIs. It requires outbound HTTPS, without a weather API key.
+- In **Hello World > Advanced > Remote A2A Agents**, add and select both entries:
+
+  | Name | Agent URL (from the Dynamic Agents container) | Authentication | Timeout |
+  | --- | --- | --- | --- |
+  | Netutils Agent | `http://netutils-agent:8120/` | User JWT, `Authorization` | 120 seconds |
+  | Weather Agent | `http://weather-agentgateway:4000/` | User JWT, `Authorization` | 120 seconds |
+
+- Discover the Agent Card, select both entries, and **Save Changes**. Each becomes a separate callable tool for Hello World or selected subagents.
+- Try: “Use Weather Agent to get the current weather in my specified city, then use Netutils Agent to resolve example.com.” Supply a city with the request.
+- The optional Weather gateway uses AgentGateway v1.1.0 with strict Keycloak JWT validation (signature, expiry, issuer, audience, and subject). Both discovery and calls require a user token. This example has no OpenFGA authorization policy. It proxies HTTP unchanged because v1.1.0 native A2A card rewriting requires the legacy `url` field; the official SDK advertises A2A 1.0 `supportedInterfaces`.
+- `deploy/agentgateway/config.a2a-weather.yaml` expects issuer `http://localhost:7080/realms/caipe`. Update it to match the browser-facing issuer for custom local ports. JWKS is fetched using Docker DNS.
+- Host diagnostic endpoint: `http://localhost:4010/`. The Weather backend has no published host port. Its Agent Card advertises the gateway URL so SDK calls stay behind the check.
+- AgentGateway consumes `Authorization` after verification; the backend does not receive the raw user JWT. The backend joins a separate Docker network shared only with this gateway. Preserve this isolation in a deployed setup.
+- Netutils is a direct-call comparison endpoint; its example server does not enforce JWT verification.

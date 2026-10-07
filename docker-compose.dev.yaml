@@ -1200,6 +1200,55 @@ services:
       - all-agents
 
   ####################################################################################################
+  #                                    Weather A2A Example                                           #
+  ####################################################################################################
+  # Optional: --profile weather-agent. JWT enforcement is at the dedicated gateway;
+  # discovery advertises that gateway URL. Only the gateway publishes a host port.
+  weather-agent:
+    build:
+      context: .
+      dockerfile: ai_platform_engineering/dynamic_agents/build/Dockerfile
+    image: ghcr.io/caipe-io/caipe-dynamic-agents:${IMAGE_TAG:-localtag}
+    container_name: weather-agent
+    command: ["uvicorn", "dynamic_agents.weather_agent.server:app", "--host", "0.0.0.0", "--port", "8121"]
+    volumes:
+      - ./ai_platform_engineering/dynamic_agents/src:/app/dynamic_agents/src
+      - ${HOME}/.aws:/home/app/.aws:ro
+    networks: [weather_a2a]
+    env_file: [.env]
+    environment:
+      - WEATHER_AGENT_URL=http://weather-agentgateway:4000/
+      - AWS_CONFIG_FILE=/home/app/.aws/config
+      - AWS_SHARED_CREDENTIALS_FILE=/home/app/.aws/credentials
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8121/healthz',timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    profiles: [weather-agent]
+
+  weather-agentgateway:
+    image: ghcr.io/agentgateway/agentgateway:v1.1.0
+    container_name: weather-agentgateway
+    command: ["--file", "/etc/agentgateway/config.yaml"]
+    ports: ["127.0.0.1:4010:4000"]
+    volumes:
+      - ./deploy/agentgateway/config.a2a-weather.yaml:/etc/agentgateway/config.yaml:ro
+    networks: [default, weather_a2a]
+    read_only: true
+    security_opt: ["no-new-privileges:true"]
+    tmpfs: [/tmp]
+    depends_on:
+      weather-agent:
+        condition: service_healthy
+      keycloak:
+        condition: service_healthy
+      keycloak-init:
+        condition: service_completed_successfully
+    profiles: [weather-agent]
+
+  ####################################################################################################
   #                                    Autonomous Agents Service                                     #
   ####################################################################################################
   # Autonomous Agents - Standalone service that fires tasks (cron / interval / webhook) at the
@@ -2698,3 +2747,8 @@ volumes:
   # See the keycloak-postgres service for the rationale.
   keycloak_postgres_data:
     driver: local
+
+# Only the weather example and its gateway join this backend network.
+networks:
+  weather_a2a:
+    driver: bridge
