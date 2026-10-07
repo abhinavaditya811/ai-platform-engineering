@@ -202,15 +202,17 @@ function StepIndicator({
   onStepClick: (stepId: StepId) => void;
 }) {
   return (
-    <div className="flex items-center gap-0 ml-auto">
+    <div className="grid w-full max-w-full grid-cols-3 gap-x-1 gap-y-1 lg:ml-auto lg:flex lg:w-auto lg:items-center lg:justify-end lg:gap-x-0">
       {steps.map((step, index) => (
         <React.Fragment key={step.id}>
-          {index > 0 && <div className="w-5 h-0.5 bg-border mx-0.5" />}
+          {index > 0 && (
+            <div className="mx-0.5 hidden h-0.5 w-5 bg-border lg:block" />
+          )}
           <button
             type="button"
             onClick={() => onStepClick(step.id)}
             className={cn(
-              "flex flex-col items-center gap-0.5 px-2.5 py-1.5 rounded-md transition-colors min-w-[64px]",
+              "flex min-w-[64px] flex-col items-center gap-0.5 rounded-md px-1.5 py-1.5 transition-colors lg:px-2.5",
               currentStep === step.id
                 ? "bg-primary/10 text-primary"
                 : "hover:bg-muted text-muted-foreground",
@@ -1431,12 +1433,12 @@ export function DynamicAgentEditor({
   return (
     <Card>
       <CardHeader className="pb-2">
-        <div className="flex items-center gap-4">
+        <div className="flex items-start gap-3 sm:gap-4">
           <Button variant="ghost" size="icon" onClick={handleBackClick}>
             <ArrowLeft className="h-4 w-4" />
           </Button>
-          <div>
-            <CardTitle>
+          <div className="min-w-0 flex-1">
+            <CardTitle className="break-words">
               {readOnly
                 ? `View Agent - ${agent?.name}`
                 : isEditing
@@ -1463,7 +1465,7 @@ export function DynamicAgentEditor({
               gradientTheme === "custom" ? customThemeConfig : undefined
             }
             rounded="rounded-lg"
-            size="ml-auto h-9 w-9"
+            size="ml-auto h-9 w-9 shrink-0"
             iconSize="h-5 w-5"
             className="transition-all"
           />
@@ -1472,9 +1474,9 @@ export function DynamicAgentEditor({
       <CardContent>
         <form onSubmit={handleSubmit} className="space-y-4">
           {/* Step Indicator + title inline */}
-          <div className="flex items-center gap-4 border-b pb-3 mt-2">
-            <div className="shrink-0">
-              <h3 className="text-xl font-bold text-primary">
+          <div className="mt-2 flex flex-col items-stretch gap-3 border-b pb-3 lg:flex-row lg:items-center lg:gap-4">
+            <div className="min-w-0 lg:shrink-0">
+              <h3 className="break-words text-lg font-bold text-primary sm:text-xl">
                 Step {currentStepIndex + 1}: {currentStepConfig?.label}
               </h3>
               <p className="text-xs text-muted-foreground mt-0.5">
