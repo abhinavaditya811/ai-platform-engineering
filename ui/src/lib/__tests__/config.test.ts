@@ -108,7 +108,6 @@ describe('getServerConfig', () => {
       expect(cfg.spinnerColor).toBeNull();
       expect(cfg.showPoweredBy).toBe(true);
       expect(cfg.supportEmail).toBe('support@example.com');
-      expect(cfg.allowDevAdminWhenSsoDisabled).toBe(false);
       expect(cfg.unsafeRbacBypassEnabled).toBe(false);
       expect(cfg.auditLogsEnabled).toBe(false);
       expect(cfg.autonomousAgentsEnabled).toBe(false);
@@ -146,7 +145,7 @@ describe('getServerConfig', () => {
         'ragEnabled', 'mongodbEnabled', 'credentialsEnabled', 'userConnectionsEnabled',
         'tagline', 'description', 'appName', 'logoUrl', 'envBadge',
         'gradientFrom', 'gradientTo', 'logoStyle', 'spinnerColor',
-        'showPoweredBy', 'supportEmail', 'allowDevAdminWhenSsoDisabled', 'unsafeRbacBypassEnabled',
+        'showPoweredBy', 'supportEmail', 'unsafeRbacBypassEnabled',
         'storageMode', 'enabledIntegrationIcons', 'faviconUrl',
         'docsUrl', 'sourceUrl', 'workflowRunnerEnabled', 'workflowsEnabled', 'projectsEnabled', 'dynamicAgentsEnabled', 'feedbackEnabled',
         'allowBuiltinSkillMutation',
@@ -299,11 +298,6 @@ describe('getServerConfig', () => {
     it('should accept NEXT_PUBLIC_PREVIEW_MODE=true as backward compat', () => {
       process.env.NEXT_PUBLIC_PREVIEW_MODE = 'true';
       expect(getServerConfig().envBadge).toBe('Preview');
-    });
-
-    it('should read ALLOW_DEV_ADMIN_WHEN_SSO_DISABLED=true', () => {
-      process.env.ALLOW_DEV_ADMIN_WHEN_SSO_DISABLED = 'true';
-      expect(getServerConfig().allowDevAdminWhenSsoDisabled).toBe(true);
     });
 
     it('should read CAIPE_UNSAFE_RBAC_BYPASS=true', () => {
@@ -912,7 +906,7 @@ describe('getClientConfigScript (XSS safety)', () => {
       'ragEnabled', 'mongodbEnabled', 'credentialsEnabled', 'userConnectionsEnabled',
       'tagline', 'description', 'appName', 'logoUrl', 'envBadge',
       'gradientFrom', 'gradientTo', 'logoStyle', 'spinnerColor',
-      'showPoweredBy', 'supportEmail', 'allowDevAdminWhenSsoDisabled', 'unsafeRbacBypassEnabled',
+      'showPoweredBy', 'supportEmail', 'unsafeRbacBypassEnabled',
       'storageMode', 'enabledIntegrationIcons', 'faviconUrl',
       'docsUrl', 'sourceUrl', 'workflowRunnerEnabled', 'workflowsEnabled', 'projectsEnabled', 'dynamicAgentsEnabled', 'feedbackEnabled',
       'allowBuiltinSkillMutation',
@@ -986,7 +980,6 @@ describe('client-side config (window.__APP_CONFIG__)', () => {
         spinnerColor: '#00ff00',
         showPoweredBy: false,
         supportEmail: 'prod@example.com',
-        allowDevAdminWhenSsoDisabled: false,
         unsafeRbacBypassEnabled: false,
         storageMode: 'mongodb',
         defaultFontSize: 'large',
@@ -1020,7 +1013,7 @@ describe('client-side config (window.__APP_CONFIG__)', () => {
         gradientFrom: '#000', gradientTo: '#fff',
         logoStyle: 'default', spinnerColor: null,
         showPoweredBy: true, supportEmail: 'dev@test.com',
-        allowDevAdminWhenSsoDisabled: true, unsafeRbacBypassEnabled: false, storageMode: 'localStorage',
+        unsafeRbacBypassEnabled: false, storageMode: 'localStorage',
         defaultFontSize: 'medium', defaultFontFamily: 'inter',
         defaultTheme: 'dark', defaultGradientTheme: 'default',
       });
@@ -1051,7 +1044,7 @@ describe('client-side config (window.__APP_CONFIG__)', () => {
         envBadge: 'Preview', gradientFrom: '#aaa', gradientTo: '#bbb',
         logoStyle: 'white', spinnerColor: '#ccc',
         showPoweredBy: false, supportEmail: 'proxy@test.com',
-        allowDevAdminWhenSsoDisabled: false, unsafeRbacBypassEnabled: false, storageMode: 'mongodb',
+        unsafeRbacBypassEnabled: false, storageMode: 'mongodb',
         defaultFontSize: 'small', defaultFontFamily: 'system',
         defaultTheme: 'midnight', defaultGradientTheme: 'sunset',
       });
@@ -1106,7 +1099,7 @@ describe('getLogoFilterClass', () => {
       appName: '', logoUrl: '', envBadge: '',
       gradientFrom: '', gradientTo: '', logoStyle: 'white',
       spinnerColor: null, showPoweredBy: true, supportEmail: '',
-      allowDevAdminWhenSsoDisabled: false, unsafeRbacBypassEnabled: false, storageMode: 'localStorage',
+        unsafeRbacBypassEnabled: false, storageMode: 'localStorage',
       defaultFontSize: 'medium', defaultFontFamily: 'inter',
       defaultTheme: 'dark', defaultGradientTheme: 'default',
     });

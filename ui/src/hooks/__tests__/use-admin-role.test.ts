@@ -33,7 +33,7 @@ describe('useAdminRole', () => {
     expect(result.current.loading).toBe(true);
   });
 
-  it('no session + all dev admin flags set → isAdmin=true', async () => {
+  it('no session + legacy dev admin flags set → isAdmin=false', async () => {
     mockUseSession.mockReturnValue({ data: null, status: 'unauthenticated' });
     mockGetConfig = {
       ssoEnabled: false,
@@ -48,7 +48,7 @@ describe('useAdminRole', () => {
       expect(result.current.loading).toBe(false);
     });
 
-    expect(result.current.isAdmin).toBe(true);
+    expect(result.current.isAdmin).toBe(false);
     expect(result.current.loading).toBe(false);
   });
 
@@ -341,7 +341,7 @@ describe('useAdminRole — canViewAdmin', () => {
     expect(result.current.canViewAdmin).toBe(false);
   });
 
-  it('canViewAdmin=true for unauthenticated user with dev admin flags', async () => {
+  it('canViewAdmin=false for unauthenticated user with legacy dev admin flags', async () => {
     mockUseSession.mockReturnValue({ data: null, status: 'unauthenticated' });
     mockGetConfig = {
       ssoEnabled: false,
@@ -356,8 +356,8 @@ describe('useAdminRole — canViewAdmin', () => {
       expect(result.current.loading).toBe(false);
     });
 
-    expect(result.current.canViewAdmin).toBe(true);
-    expect(result.current.isAdmin).toBe(true);
+    expect(result.current.canViewAdmin).toBe(false);
+    expect(result.current.isAdmin).toBe(false);
   });
 
   it('canViewAdmin=false for unauthenticated user without dev flags', async () => {
@@ -482,7 +482,7 @@ describe('useAdminRole — canAccessDynamicAgents', () => {
     expect(result.current.canAccessDynamicAgents).toBe(false);
   });
 
-  it('canAccessDynamicAgents=true for dev admin (SSO disabled + allowDevAdmin + mongodb)', async () => {
+  it('canAccessDynamicAgents=false for anonymous users with legacy dev admin flags', async () => {
     mockUseSession.mockReturnValue({ data: null, status: 'unauthenticated' });
     mockGetConfig = {
       ssoEnabled: false,
@@ -497,7 +497,7 @@ describe('useAdminRole — canAccessDynamicAgents', () => {
       expect(result.current.loading).toBe(false);
     });
 
-    expect(result.current.canAccessDynamicAgents).toBe(true);
+    expect(result.current.canAccessDynamicAgents).toBe(false);
   });
 
   it('canAccessDynamicAgents=false for unauthenticated user (no session, SSO enabled)', async () => {

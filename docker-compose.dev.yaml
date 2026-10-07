@@ -571,10 +571,10 @@ services:
       - NEXTAUTH_URL=${NEXTAUTH_URL:-http://localhost:3000}
       # SSO Configuration - reads from .env file
       # The app reads SSO_ENABLED, OIDC_CLIENT_ID, OIDC_CLIENT_SECRET, OIDC_ISSUER directly
-      - SSO_ENABLED=${SSO_ENABLED:-false}
-      - OIDC_CLIENT_ID=${OIDC_CLIENT_ID:-}
-      - OIDC_CLIENT_SECRET=${OIDC_CLIENT_SECRET:-}
-      - OIDC_ISSUER=${OIDC_ISSUER:-}
+      - SSO_ENABLED=${SSO_ENABLED:-true}
+      - OIDC_CLIENT_ID=${OIDC_CLIENT_ID:-caipe-ui}
+      - OIDC_CLIENT_SECRET=${OIDC_CLIENT_SECRET:-caipe-ui-dev-secret}
+      - OIDC_ISSUER=${OIDC_ISSUER:-http://localhost:7080/realms/caipe}
       # Spec 104 — Slack-bot OBO tokens are minted with `aud=agentgateway` so they
       # can hit AGW directly. The same token also flows through the BFF on its
       # way to AGW, so the BFF must accept that audience too. Adding it here
@@ -654,18 +654,8 @@ services:
       # Add the autonomous-agents profile when starting compose to enable the service:
       #   docker compose -f docker-compose.dev.yaml --profile caipe-ui --profile autonomous-agents \
       #                  --profile dynamic-agents --profile caipe-mongodb up --build
-      # The Autonomous tab in the UI is admin-gated; in local dev (SSO off) you also need
-      # ALLOW_DEV_ADMIN_WHEN_SSO_DISABLED=true (set below) so the dev-admin fallback is enabled.
+      # The Autonomous tab requires a Keycloak session with admin permissions.
       - AUTONOMOUS_AGENTS_URL=${AUTONOMOUS_AGENTS_URL:-http://autonomous-agents:8002}
-      # Dev-admin fallback for local testing without SSO. NEVER enable this in production --
-      # it grants admin to anonymous browser sessions. Required for the Autonomous tab to be
-      # visible/usable in the dev compose stack since admin gating depends on either an OIDC
-      # admin claim or this flag (see ui/src/hooks/use-admin-role.ts).
-      - ALLOW_DEV_ADMIN_WHEN_SSO_DISABLED=${ALLOW_DEV_ADMIN_WHEN_SSO_DISABLED:-true}
-      # Server-side companion to the UI dev-admin fallback above. Without this,
-      # `/api/autonomous` still treats anonymous sessions as non-admin and returns
-      # 403 "Admin view access required" even though the tab is visible.
-      - ALLOW_ANONYMOUS_ADMIN=${ALLOW_ANONYMOUS_ADMIN:-true}
       # Skill Scanner — when the `skill-scanner` profile is enabled, the UI
       # uploads ZIP'd skill packages to this service for security scanning.
       # If unreachable the UI gracefully reports "scanner unavailable" instead
@@ -847,10 +837,10 @@ services:
       - AUTONOMOUS_AGENTS_URL=${AUTONOMOUS_AGENTS_URL:-http://autonomous-agents:8002}
       - NEXTAUTH_SECRET=${NEXTAUTH_SECRET:-caipe-dev-secret-change-in-production}
       - NEXTAUTH_URL=${NEXTAUTH_URL:-http://localhost:3000}
-      - SSO_ENABLED=${SSO_ENABLED:-false}
-      - OIDC_CLIENT_ID=${OIDC_CLIENT_ID:-}
-      - OIDC_CLIENT_SECRET=${OIDC_CLIENT_SECRET:-}
-      - OIDC_ISSUER=${OIDC_ISSUER:-}
+      - SSO_ENABLED=${SSO_ENABLED:-true}
+      - OIDC_CLIENT_ID=${OIDC_CLIENT_ID:-caipe-ui}
+      - OIDC_CLIENT_SECRET=${OIDC_CLIENT_SECRET:-caipe-ui-dev-secret}
+      - OIDC_ISSUER=${OIDC_ISSUER:-http://localhost:7080/realms/caipe}
       - OIDC_EXTRA_AUDIENCES=${OIDC_EXTRA_AUDIENCES:-agentgateway}
       - OIDC_ACCEPTED_AUDIENCES=${OIDC_ACCEPTED_AUDIENCES:-caipe-platform}
       - OPENFGA_RECONCILE_ENABLED=${OPENFGA_RECONCILE_ENABLED:-true}
@@ -1081,9 +1071,8 @@ services:
       - MONGODB_URI=${MONGODB_URI:-mongodb://${MONGODB_ROOT_USERNAME:-admin}:${MONGODB_ROOT_PASSWORD:-changeme}@caipe-mongodb:27017/${MONGODB_DATABASE:-caipe}?authSource=admin}
       - MONGODB_DATABASE=${MONGODB_DATABASE:-caipe}
       # Authentication (same OIDC config as CAIPE UI)
-      - AUTH_ENABLED=${AUTH_ENABLED:-false}
-      - OIDC_ISSUER=${OIDC_ISSUER:-}
-      - OIDC_CLIENT_ID=${OIDC_CLIENT_ID:-}
+      - OIDC_ISSUER=${OIDC_ISSUER:-http://localhost:7080/realms/caipe}
+      - OIDC_CLIENT_ID=${OIDC_CLIENT_ID:-caipe-ui}
       - OIDC_DISCOVERY_URL=${OIDC_DISCOVERY_URL:-}
       - OIDC_GROUP_CLAIM=${OIDC_GROUP_CLAIM:-}
       - OIDC_REQUIRED_ADMIN_GROUP=${OIDC_REQUIRED_ADMIN_GROUP:-}
@@ -1112,8 +1101,7 @@ services:
       - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
       - AGENT_RUNTIME_TTL_SECONDS=${AGENT_RUNTIME_TTL_SECONDS:-60}
       # Keep uvicorn reload off in Docker. DEBUG=true from .env can make the
-      # mounted dev service hang during startup; the UI gateway still injects
-      # dev user context when auth is disabled.
+      # mounted dev service hang during startup.
       - DEBUG=${DYNAMIC_AGENTS_DEBUG:-false}
       # CORS_ORIGINS: must be a JSON array (bare "*" from prod default is not valid JSON for list[str])
       # To restrict origins, set DYNAMIC_AGENTS_CORS_ORIGINS='["http://localhost:3000"]' in .env
@@ -1153,12 +1141,7 @@ services:
       # compatible. Connected users always get their own OAuth token instead.
       - GITHUB_PERSONAL_ACCESS_TOKEN=${GITHUB_PERSONAL_ACCESS_TOKEN:-}
       - GITLAB_PERSONAL_ACCESS_TOKEN=${GITLAB_PERSONAL_ACCESS_TOKEN:-${GITLAB_TOKEN:-}}
-      # Spec 102 Phase 11.4 — require Bearer JWT on every DA request.
-      # The BFF (ui/src/lib/da-proxy.ts and the two probe / suggest routes)
-      # now always sends Authorization: Bearer alongside the legacy
-      # X-User-Context header. Set DA_REQUIRE_BEARER=false to roll back if
-      # an unmigrated caller is discovered in production.
-      - DA_REQUIRE_BEARER=${DA_REQUIRE_BEARER:-true}
+      # Dynamic Agents always requires a validated Keycloak bearer token.
       # OpenFGA runtime PDP — Dynamic Agents repeats the BFF can_use check
       # before start/invoke/resume so direct bearer callers cannot bypass ReBAC.
       - OPENFGA_HTTP=${OPENFGA_HTTP:-http://openfga:8080}
@@ -1249,7 +1232,7 @@ services:
       # Dynamic-agents runtime endpoint -- every autonomous task runs against a
       # dynamic agent selected by the task's dynamic_agent_id.
       - DYNAMIC_AGENTS_URL=${DYNAMIC_AGENTS_URL:-http://dynamic-agents:8001}
-      # Dynamic-agents may require Bearer auth (DA_REQUIRE_BEARER=true). The
+      # Dynamic Agents requires Bearer auth. The
       # autonomous scheduler authenticates as a service principal, while
       # X-User-Context still carries the task owner's email for attribution.
       - DYNAMIC_AGENTS_OAUTH2_TOKEN_URL=${DYNAMIC_AGENTS_OAUTH2_TOKEN_URL:-http://keycloak:7080/realms/caipe/protocol/openid-connect/token}

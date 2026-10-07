@@ -449,8 +449,7 @@ services:
       - WEBEX_REDIRECT_URI=${WEBEX_REDIRECT_URI:-}
       # Autonomous Agents - URL the UI's /api/autonomous proxy targets.
       # Add the autonomous-agents profile to start the upstream service.
-      # The Autonomous tab is admin-gated; in production grant the OIDC admin
-      # group, or set ALLOW_DEV_ADMIN_WHEN_SSO_DISABLED=true ONLY for local dev.
+      # The Autonomous tab requires an authenticated OIDC admin session.
       - ENABLE_AUTONOMOUS_AGENTS=${ENABLE_AUTONOMOUS_AGENTS:-false}
       - AUTONOMOUS_AGENTS_URL=${AUTONOMOUS_AGENTS_URL:-http://autonomous-agents:8002}
       # Audit log storage is owned by the lightweight Python audit-service.
@@ -602,7 +601,6 @@ services:
       - MONGODB_URI=${MONGODB_URI:-mongodb://${MONGODB_ROOT_USERNAME:-admin}:${MONGODB_ROOT_PASSWORD:-changeme}@caipe-mongodb:27017/${MONGODB_DATABASE:-caipe}?authSource=admin}
       - MONGODB_DATABASE=${MONGODB_DATABASE:-caipe}
       # Authentication (same OIDC config as CAIPE UI)
-      - AUTH_ENABLED=${AUTH_ENABLED:-false}
       - OIDC_ISSUER=${OIDC_ISSUER:-}
       - OIDC_CLIENT_ID=${OIDC_CLIENT_ID:-}
       - OIDC_DISCOVERY_URL=${OIDC_DISCOVERY_URL:-}

@@ -19,7 +19,7 @@ export async function GET(request: NextRequest): Promise<Response> {
 
   let auth: Awaited<ReturnType<typeof getAuthenticatedUser>>;
   try {
-    auth = await getAuthenticatedUser(request, { allowAnonymous: false });
+    auth = await getAuthenticatedUser(request);
   } catch (error) {
     if (error instanceof ApiError) {
       return Response.json(

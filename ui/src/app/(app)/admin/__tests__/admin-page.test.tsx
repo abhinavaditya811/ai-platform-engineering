@@ -50,11 +50,6 @@ jest.mock('@/lib/config', () => ({
     })[key] ?? true,
 }));
 
-jest.mock('@/lib/auth/dev-auth-provider', () => ({
-  ...jest.requireActual('@/lib/auth/dev-auth-provider'),
-  isDevAnonymousAuthEnabled: jest.fn(() => false),
-}));
-
 jest.mock('@/components/auth-guard', () => ({
   AuthGuard: ({ children }: { children: React.ReactNode }) => <>{children}</>,
 }));
@@ -346,6 +341,7 @@ const allGatesOpen = {
   action_audit: true,
   openfga: true,
   migrations: true,
+  approvals: true,
 };
 
 const baselineUserGates = {
@@ -470,11 +466,6 @@ jest.spyOn(console, 'error').mockImplementation(() => {});
 jest.spyOn(console, 'log').mockImplementation(() => {});
 
 import AdminPage from '../page';
-import { isDevAnonymousAuthEnabled } from '@/lib/auth/dev-auth-provider';
-
-const mockIsDevAnonymousAuthEnabled = isDevAnonymousAuthEnabled as jest.MockedFunction<
-  typeof isDevAnonymousAuthEnabled
->;
 
 // ============================================================================
 // Tests
@@ -484,7 +475,6 @@ describe('Admin Dashboard Page', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockIsAdmin = false;
-    mockIsDevAnonymousAuthEnabled.mockReturnValue(true);
     currentSearchParams = new URLSearchParams();
     currentPathname = '/admin';
   });
@@ -531,7 +521,9 @@ describe('Admin Dashboard Page', () => {
       // Must be on a tab with a loader (stats) so a fetch is actually triggered.
       currentPathname = '/admin/insights/statistics';
       currentSearchParams = new URLSearchParams();
-      (global.fetch as jest.Mock) = jest.fn().mockRejectedValue(new Error('Network error'));
+      const fallbackFetch = setupFetchMock();
+      global.fetch = jest.fn((url: string) => url.includes('/api/admin/stats')
+        ? Promise.reject(new Error('Network error')) : fallbackFetch(url));
       render(<AdminPage />);
 
       expect((await screen.findAllByText(/network error/i)).length).toBeGreaterThan(1);
@@ -543,11 +535,10 @@ describe('Admin Dashboard Page', () => {
       // Must be on a tab with a loader (stats) so a fetch is actually triggered.
       currentPathname = '/admin/insights/statistics';
       currentSearchParams = new URLSearchParams();
-      (global.fetch as jest.Mock) = jest.fn().mockResolvedValue({
-        ok: false,
-        status: 401,
-        json: () => Promise.resolve({ success: false, error: 'Unauthorized' }),
-      });
+      const fallbackFetch = setupFetchMock();
+      global.fetch = jest.fn((url: string) => url.includes('/api/admin/stats')
+        ? Promise.resolve({ ok: false, status: 401, json: () => Promise.resolve({ success: false, error: 'Unauthorized' }) })
+        : fallbackFetch(url));
       render(<AdminPage />);
 
       await waitFor(() => {
@@ -559,7 +550,6 @@ describe('Admin Dashboard Page', () => {
   describe('Read-only mode (non-admin user)', () => {
     beforeEach(() => {
       mockIsAdmin = false;
-      mockIsDevAnonymousAuthEnabled.mockReturnValue(false);
       setupFetchMock({
         tabGates: baselineUserGates,
         integrationPanelModes: { slack: 'self_service', webex: 'self_service' },
@@ -685,7 +675,6 @@ describe('Admin Dashboard Page', () => {
   describe('Admin mode', () => {
     beforeEach(() => {
       mockIsAdmin = true;
-      mockIsDevAnonymousAuthEnabled.mockReturnValue(true);
       setupFetchMock();
     });
 
@@ -1444,7 +1433,7 @@ describe('Admin Dashboard Page', () => {
 
       expect(await screen.findByText('Platform Team')).toBeInTheDocument();
 
-      fireEvent.click(screen.getByLabelText(/show archived/i));
+      fireEvent.click(await screen.findByLabelText(/show archived/i));
 
       await waitFor(() => {
         const teamRequests = fetchMock.mock.calls.filter(([url]) =>
@@ -1481,7 +1470,7 @@ describe('Admin Dashboard Page', () => {
 
       render(<AdminPage />);
 
-      fireEvent.click(screen.getByLabelText(/show archived/i));
+      fireEvent.click(await screen.findByLabelText(/show archived/i));
 
       expect(await screen.findByText('Retired Team')).toBeInTheDocument();
       expect(screen.getByText('Archived')).toBeInTheDocument();

@@ -92,8 +92,6 @@ MCP_SERVERS_COLLECTION=mcp_servers
 
 # Authentication
 # Use Keycloak for local development and production.
-AUTH_ENABLED=true
-DA_REQUIRE_BEARER=true
 KEYCLOAK_URL=http://localhost:7080
 KEYCLOAK_REALM=caipe
 # Set OIDC_ISSUER when the browser-facing issuer differs from KEYCLOAK_URL.
@@ -368,7 +366,7 @@ docker build -t dynamic-agents .
 # Run
 docker run -p 8001:8001 \
   -e MONGODB_URI=mongodb://host.docker.internal:27017 \
-  -e DEBUG=true \
+  -e KEYCLOAK_URL=http://keycloak:7080 \
   -e ANTHROPIC_API_KEY=your-key \
   dynamic-agents
 ```

@@ -5,7 +5,7 @@
  * Returns middleware definitions for dynamic UI rendering.
  *
  * Although the backend route returns static metadata, the dynamic-agents
- * service runs with `DA_REQUIRE_BEARER=true`, so every request must carry
+ * service requires Keycloak authentication, so every request must carry
  * the user's session JWT.
  */
 

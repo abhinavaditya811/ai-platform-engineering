@@ -17,7 +17,7 @@
  *     to fetch: 403" on the Create Agent → Tools step.
  *   - The route now mirrors how Create Agent itself is gated: it
  *     requires an authenticated session (so the request carries a real
- *     bearer token to dynamic-agents' `DA_REQUIRE_BEARER` middleware)
+ *     bearer token to Dynamic Agents' mandatory JWT middleware)
  *     and skips the OpenFGA check.
  */
 

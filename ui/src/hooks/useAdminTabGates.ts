@@ -2,7 +2,6 @@
 
 // assisted-by Codex Codex-sonnet-4-6
 
-import { allAdminTabGates,isDevAnonymousAuthEnabled } from "@/lib/auth/dev-auth-provider";
 import type { AdminSimulationQueryTarget } from "@/lib/rbac/admin-simulation-query";
 import type { AdminTabGatesMap,AdminTabKey,IntegrationPanelModesMap } from "@/lib/rbac/types";
 import { useSession } from "next-auth/react";
@@ -29,8 +28,6 @@ const EMPTY_GATES: AdminTabGatesMap = {
   approvals: false,
   service_accounts: false,
 };
-
-const ALL_GATES = allAdminTabGates(EMPTY_GATES);
 
 interface AdminTabGatesState {
   gates: AdminTabGatesMap;
@@ -95,18 +92,8 @@ export function useAdminTabGates(
   const simulationKey = simulationTarget?.type && simulationTarget.id
     ? `${simulationTarget.type}:${simulationTarget.id}:${simulationTarget.relation ?? ""}`
     : "";
-  const devAuthEnabled = isDevAnonymousAuthEnabled();
 
   const fetchGates = useCallback(async () => {
-    if (devAuthEnabled && !simulationTarget) {
-      setGates(ALL_GATES);
-      setIntegrationPanelModes({ slack: "full", webex: "full" });
-      setSimulation(null);
-      setError(null);
-      setLoading(false);
-      return;
-    }
-
     if (status !== "authenticated") {
       setLoading(false);
       return;
@@ -134,20 +121,13 @@ export function useAdminTabGates(
     } finally {
       setLoading(false);
     }
-  }, [devAuthEnabled, simulationTarget, status]);
+  }, [simulationTarget, status]);
 
   useEffect(() => {
     if (status === "loading") {
       return;
     }
     if (status === "unauthenticated") {
-      if (devAuthEnabled && !simulationTarget) {
-        setGates(ALL_GATES);
-        setIntegrationPanelModes({ slack: "full", webex: "full" });
-        setSimulation(null);
-        setLoading(false);
-        return;
-      }
       setGates(EMPTY_GATES);
       setIntegrationPanelModes({});
       setSimulation(null);
@@ -168,7 +148,7 @@ export function useAdminTabGates(
       lastTokenRef.current = cacheKey;
       fetchGates();
     }
-  }, [session, status, fetchGates, simulationKey, devAuthEnabled, simulationTarget]);
+  }, [session, status, fetchGates, simulationKey, simulationTarget]);
 
   const visibleTabs = (Object.entries(gates) as [AdminTabKey, boolean][])
     .filter(([, v]) => v)

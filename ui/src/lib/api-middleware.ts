@@ -21,11 +21,6 @@ import { ApiError } from '@/lib/api-error';
 import type { AuthFailureAction, AuthFailureReason } from '@/lib/auth-error';
 import { CredentialError } from '@/lib/credentials/errors';
 import { getRbacCollection } from '@/lib/rbac/mongo-collections';
-import {
-  getDevAnonymousSession,
-  getDevAnonymousUser,
-  isDevAnonymousAuthEnabled,
-} from '@/lib/auth/dev-auth-provider';
 
 // Re-export so existing `import { ApiError } from "@/lib/api-middleware"`
 // call sites keep working — see ./api-error.ts for why the class lives
@@ -136,14 +131,6 @@ export interface AuthenticatedRequest extends NextRequest {
     name: string;
     role: string;
   };
-}
-
-export interface GetAuthenticatedUserOptions {
-  /**
-   * When true and SSO is disabled, no session returns a fallback anonymous user
-   * (for local dev / no-SSO). When false (default), no session always throws 401.
-   */
-  allowAnonymous?: boolean;
 }
 
 type SessionAuthSession = {
@@ -404,16 +391,11 @@ async function runKeycloakSubMappingWrites(
  * Returns user info and full session, or throws 401 error
  *
  * Protected routes (via withAuth) require a real session: no session → 401.
- * Optional allowAnonymous allows a fallback user when SSO is disabled for
- * routes that explicitly permit unauthenticated access in local dev.
  *
  * Admin display role is only the bootstrap hint. Durable authorization is
  * evaluated in requireRbacPermission through OpenFGA organization relations.
  */
-export async function getAuthenticatedUser(
-  request: NextRequest,
-  options: GetAuthenticatedUserOptions = {}
-) {
+export async function getAuthenticatedUser(request: NextRequest) {
   const cached = readCachedSessionAuth(request);
   if (cached) {
     return cached;
@@ -422,13 +404,6 @@ export async function getAuthenticatedUser(
   const session = await getServerSession(authOptions);
 
   if (!session || !session.user?.email) {
-    const { allowAnonymous = false } = options;
-    if (allowAnonymous && isDevAnonymousAuthEnabled()) {
-      return {
-        user: getDevAnonymousUser(),
-        session: getDevAnonymousSession(),
-      };
-    }
     throw new ApiError(
       'You are not signed in. Please sign in to continue.',
       401,
@@ -472,8 +447,7 @@ export async function getAuthenticatedUser(
 /**
  * Require authentication for API route
  * Use this as a wrapper for protected endpoints.
- * allowAnonymous is set to !ssoEnabled: anonymous fallback only fires when SSO is off.
- * When SSO is enabled, no session → 401.
+ * Missing authenticated sessions always return 401.
  */
 interface RouteRbacPolicy {
   resource: RbacResource;
@@ -777,7 +751,7 @@ export async function getAuthFromBearerOrSession(
   }
 
   // Path 2: Session cookie (existing NextAuth flow)
-  const { user, session } = await getAuthenticatedUser(request, { allowAnonymous: !getConfig('ssoEnabled') });
+  const { user, session } = await getAuthenticatedUser(request);
   return { user, session: { ...session, authMethod: 'session' as const } };
 }
 

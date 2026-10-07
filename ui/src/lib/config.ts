@@ -71,11 +71,6 @@ export interface Config {
   /** Support email address for contact links */
   supportEmail: string;
   /**
-   * When true and SSO is disabled, show Admin tab without login (dev only).
-   * Set ALLOW_DEV_ADMIN_WHEN_SSO_DISABLED=true. Do not use in production.
-   */
-  allowDevAdminWhenSsoDisabled: boolean;
-  /**
    * Unsafe dev/emergency bypass for UI RBAC enforcement.
    * Client-visible so the header can show a compact no-auth indicator.
    */
@@ -256,7 +251,6 @@ const DEFAULT_CONFIG: Config = {
   spinnerColor: null,
   showPoweredBy: true,
   supportEmail: DEFAULT_SUPPORT_EMAIL,
-  allowDevAdminWhenSsoDisabled: false,
   unsafeRbacBypassEnabled: false,
   storageMode: 'localStorage',
   enabledIntegrationIcons: null,
@@ -373,7 +367,6 @@ export function getServerConfig(): Config {
     || env('MONGODB_ENABLED') === 'true';
   const envBadge = env('ENV_BADGE')
     || (env('PREVIEW_MODE') === 'true' ? 'Preview' : '');
-  const allowDevAdminWhenSsoDisabled = env('ALLOW_DEV_ADMIN_WHEN_SSO_DISABLED') === 'true';
   const unsafeRbacBypassEnabled = enabledEnv('CAIPE_UNSAFE_RBAC_BYPASS');
   const workflowRunnerEnabled = env('WORKFLOW_RUNNER_ENABLED') === 'true';
   const workflowsEnabled = env('WORKFLOWS_ENABLED') === 'true';
@@ -458,7 +451,6 @@ export function getServerConfig(): Config {
     spinnerColor: env('SPINNER_COLOR') || null,
     showPoweredBy,
     supportEmail: env('SUPPORT_EMAIL') || DEFAULT_SUPPORT_EMAIL,
-    allowDevAdminWhenSsoDisabled,
     unsafeRbacBypassEnabled,
     storageMode: mongodbEnabled ? 'mongodb' : 'localStorage',
     enabledIntegrationIcons: env('ENABLED_INTEGRATION_ICONS')?.split(',').map((icon) => icon.trim().toLowerCase()) ?? null,

@@ -1,4 +1,3 @@
-import { isDevAnonymousAuthEnabled } from '@/lib/auth/dev-auth-provider';
 import { useSession } from 'next-auth/react';
 import { useEffect,useState } from 'react';
 
@@ -18,19 +17,13 @@ export function useAdminRole() {
   const [isAdmin, setIsAdmin] = useState(false);
   const [loading, setLoading] = useState(true);
 
-  const isDevAdmin = isDevAnonymousAuthEnabled();
-
-  const canViewAdmin = (session?.canViewAdmin === true) || isDevAdmin;
-  const canAccessDynamicAgents = (session?.canAccessDynamicAgents === true) || isDevAdmin;
+  const canViewAdmin = (session?.canViewAdmin === true);
+  const canAccessDynamicAgents = (session?.canAccessDynamicAgents === true);
 
   useEffect(() => {
     async function checkAdminRole() {
       if (!session) {
-        if (isDevAdmin) {
-          setIsAdmin(true);
-        } else {
-          setIsAdmin(false);
-        }
+        setIsAdmin(false);
         setLoading(false);
         return;
       }
@@ -54,7 +47,7 @@ export function useAdminRole() {
     }
 
     checkAdminRole();
-  }, [isDevAdmin, session]);
+  }, [session]);
 
   return { isAdmin, canViewAdmin, canAccessDynamicAgents, loading };
 }
