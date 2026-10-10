@@ -20,6 +20,7 @@ import {
   requireRbacPermission,
 } from "@/lib/api-middleware";
 import type { RbacResource, RbacScope } from "@/lib/rbac/types";
+import { buildSignedUserContextHeaders } from "@/lib/server/user-context-signing";
 
 // ═══════════════════════════════════════════════════════════════
 // Auth helper
@@ -221,7 +222,7 @@ export function buildBackendHeaders(
     "Content-Type": contentType,
   };
   if (authResult.userContextHeader) {
-    headers["X-User-Context"] = authResult.userContextHeader;
+    Object.assign(headers, buildSignedUserContextHeaders(authResult.userContextHeader, `Bearer ${authResult.bearerToken || ""}`));
   }
   if (authResult.bearerToken) {
     headers["Authorization"] = `Bearer ${authResult.bearerToken}`;

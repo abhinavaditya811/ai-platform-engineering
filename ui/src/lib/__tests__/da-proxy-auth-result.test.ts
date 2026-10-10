@@ -1,6 +1,7 @@
 /**
  * @jest-environment node
  */
+process.env.DA_USER_CONTEXT_HMAC_SECRET = "test-signing-key";
 
 import { NextRequest, NextResponse } from "next/server";
 

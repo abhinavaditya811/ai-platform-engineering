@@ -123,4 +123,31 @@ describe("RemoteAgentsPicker", () => {
     expect(onParentSubmit).not.toHaveBeenCalled();
   });
 
+  it.each(["POST", "PUT"])("ignores repeated Enter presses while a %s request is pending", async (method) => {
+    let finish!: (value: unknown) => void;
+    const pending = new Promise((resolve) => { finish = resolve; });
+    const item = { _id: "remote-example", name: "Example Agent", endpoint: "https://agent.example.test", timeout_seconds: 120 };
+    const fetchMock = jest.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      if (init?.method === method) return pending;
+      return jsonResponse({ items: method === "PUT" ? [item] : [], can_manage_registry: true });
+    });
+    global.fetch = fetchMock as typeof fetch;
+    render(<RemoteAgentsPicker value={[]} onChange={jest.fn()} timeoutValues={{}} onTimeoutChange={jest.fn()} />);
+    let input: HTMLElement;
+    if (method === "PUT") {
+      fireEvent.click(await screen.findByRole("button", { name: "Edit Example Agent" }));
+      input = screen.getAllByLabelText("Name")[0];
+    } else {
+      await screen.findByText("No remote A2A agents are registered.");
+      input = screen.getByLabelText("Name");
+      fireEvent.change(input, { target: { value: item.name } });
+      fireEvent.change(screen.getByLabelText("Agent URL"), { target: { value: item.endpoint } });
+    }
+    fireEvent.keyDown(input, { key: "Enter" });
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(fetchMock.mock.calls.filter(([, init]) => init?.method === method)).toHaveLength(1);
+    finish(jsonResponse(item));
+    await waitFor(() => expect(mockToast).toHaveBeenCalledWith(method === "PUT" ? "Remote A2A agent updated" : "Remote A2A agent added", "success"));
+  });
+
 });

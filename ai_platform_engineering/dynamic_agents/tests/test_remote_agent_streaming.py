@@ -106,7 +106,7 @@ async def test_stream_cleanup_on_disconnect_timeout_and_cancellation(
     client = SimpleNamespace(send_message=stream, close=AsyncMock())
     factory = SimpleNamespace(create_from_url=AsyncMock(return_value=client))
     monkeypatch.setattr("dynamic_agents.services.remote_agent_tool.ClientFactory", lambda config: factory)
-    tool = await create_remote_agent_tool(a2a_url="http://agent.example.test", streaming=True, bearer_token="caller")
+    tool = await create_remote_agent_tool(a2a_url="https://agent.example.test", streaming=True, bearer_token="caller")
     if ending == "cancel":
         task = asyncio.create_task(tool.ainvoke({"message": "test"}))
         await asyncio.wait_for(started.wait(), timeout=2)

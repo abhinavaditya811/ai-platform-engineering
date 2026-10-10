@@ -1253,7 +1253,9 @@ class AgentRuntime:
         if not self._mongo_service or not agent_config.allowed_remote_agents:
             return []
 
-        remote_agents = self._mongo_service.get_remote_agents_by_ids(agent_config.allowed_remote_agents)
+        remote_agents = await asyncio.to_thread(
+            self._mongo_service.get_remote_agents_by_ids, agent_config.allowed_remote_agents
+        )
         versions = {item["_id"]: item.get("updated_at") for item in remote_agents}
         self._remote_agent_versions.update({agent_id: versions.get(agent_id) for agent_id in agent_config.allowed_remote_agents})
         if not remote_agents:
@@ -1265,6 +1267,7 @@ class AgentRuntime:
             *(
                 create_remote_agent_tool(
                     a2a_url=remote_agent["endpoint"],
+                    allowed_http_origins=self.settings.remote_a2a_allowed_http_origins,
                     name=remote_agent.get("name"),
                     description=remote_agent.get("description"),
                     bearer_token=self._auth_bearer,

@@ -367,6 +367,7 @@ services:
     env_file:
       - .env
     environment:
+      - DA_USER_CONTEXT_HMAC_SECRET=${DA_USER_CONTEXT_HMAC_SECRET:-${NEXTAUTH_SECRET}}
       - NODE_ENV=production
       # Safe release metadata shown by System Health. A specific
       # PLATFORM_COMPONENT_VERSION_* value may override this shared tag.
@@ -592,6 +593,8 @@ services:
       - ${HOME}/.aws:/home/app/.aws:ro
     env_file: [.env]
     environment:
+      - DA_USER_CONTEXT_HMAC_SECRET=${DA_USER_CONTEXT_HMAC_SECRET:-${NEXTAUTH_SECRET}}
+      - REMOTE_A2A_ALLOWED_HTTP_ORIGINS=${REMOTE_A2A_ALLOWED_HTTP_ORIGINS:-[]}
       - AWS_CONFIG_FILE=/home/app/.aws/config
       - AWS_SHARED_CREDENTIALS_FILE=/home/app/.aws/credentials
       - AWS_BEDROCK_STREAMING=${AWS_BEDROCK_STREAMING:-false}
@@ -662,6 +665,7 @@ services:
     ports: ["127.0.0.1:8002:8002"]
     env_file: [.env]
     environment:
+      - DYNAMIC_AGENTS_USER_CONTEXT_HMAC_SECRET=${DA_USER_CONTEXT_HMAC_SECRET:-${NEXTAUTH_SECRET}}
       # Dynamic-agents runtime endpoint -- every autonomous task runs against a
       # dynamic agent (its tools / system prompt / middleware) selected by the
       # task's dynamic_agent_id. Tasks surface a clear ack failure if this URL

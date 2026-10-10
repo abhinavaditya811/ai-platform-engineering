@@ -1,6 +1,7 @@
 /**
  * @jest-environment node
  */
+process.env.DA_USER_CONTEXT_HMAC_SECRET = "test-signing-key";
 
 import { NextRequest } from "next/server";
 
@@ -19,7 +20,7 @@ const mockMergeWorkflowConfigsById = jest.fn();
 const mockStartWorkflowRun = jest.fn();
 const mockGetAuth = jest.fn();
 const mockAuthUser = { email: "alice@example.com", role: "user", name: "Alice" };
-const mockAuthSession: Record<string, unknown> = { sub: "alice-sub", role: "user" };
+const mockAuthSession: Record<string, unknown> = { sub: "alice-sub", role: "user", accessToken: "test-token" };
 
 jest.mock("@/lib/mongodb", () => ({
   getCollection: (...args: unknown[]) => mockGetCollection(...args),

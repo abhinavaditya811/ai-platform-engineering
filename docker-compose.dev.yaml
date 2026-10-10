@@ -549,6 +549,7 @@ services:
     env_file:
       - .env
     environment:
+      - DA_USER_CONTEXT_HMAC_SECRET=${DA_USER_CONTEXT_HMAC_SECRET:-${NEXTAUTH_SECRET:-caipe-dev-secret-change-in-production}}
       - NODE_ENV=development
       # Safe release metadata shown by System Health. A specific
       # PLATFORM_COMPONENT_VERSION_* value may override this shared tag.
@@ -822,6 +823,7 @@ services:
     env_file:
       - .env
     environment:
+      - DA_USER_CONTEXT_HMAC_SECRET=${DA_USER_CONTEXT_HMAC_SECRET:-${NEXTAUTH_SECRET:-caipe-dev-secret-change-in-production}}
       - NODE_ENV=production
       # Safe release metadata shown by System Health. A specific
       # PLATFORM_COMPONENT_VERSION_* value may override this shared tag.
@@ -1058,6 +1060,8 @@ services:
       - dynamic_agents_attachments:/var/lib/caipe-attachments
     env_file: [.env]
     environment:
+      - DA_USER_CONTEXT_HMAC_SECRET=${DA_USER_CONTEXT_HMAC_SECRET:-${NEXTAUTH_SECRET:-caipe-dev-secret-change-in-production}}
+      - REMOTE_A2A_ALLOWED_HTTP_ORIGINS=${REMOTE_A2A_ALLOWED_HTTP_ORIGINS:-[]}
       # Dev-only: DEV_HOT_RELOAD toggles the existing DEBUG-driven uvicorn reload
       # on the bind-mounted source under /app/dynamic_agents/src. Default off.
       - DEBUG=${DEV_HOT_RELOAD:-false}
@@ -1196,6 +1200,7 @@ services:
     ports: ["8002:8002"]
     env_file: [.env]
     environment:
+      - DYNAMIC_AGENTS_USER_CONTEXT_HMAC_SECRET=${DA_USER_CONTEXT_HMAC_SECRET:-${NEXTAUTH_SECRET:-caipe-dev-secret-change-in-production}}
       # Dynamic-agents runtime endpoint -- every autonomous task runs against a
       # dynamic agent selected by the task's dynamic_agent_id.
       - DYNAMIC_AGENTS_URL=${DYNAMIC_AGENTS_URL:-http://dynamic-agents:8001}

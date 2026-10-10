@@ -1,13 +1,16 @@
 """Remote registry metadata and cache invalidation contracts."""
 
+import asyncio
+import threading
 from datetime import datetime, timezone
 from types import SimpleNamespace
-from unittest.mock import Mock
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 
 from dynamic_agents.services.agent_runtime import AgentRuntime
 from dynamic_agents.services.mongo import MongoDBService
+from dynamic_agents.services.runtime_cache import AgentRuntimeCache
 
 
 def test_registry_returns_auth_metadata_to_runtime() -> None:
@@ -53,3 +56,44 @@ def test_remote_auth_change_invalidates_cached_parent_or_subagent_runtime(latest
     assert runtime.is_stale(config, []) is False
     getter.return_value = latest
     assert runtime.is_stale(config, []) is True
+
+
+async def test_registry_initialization_does_not_query_mongo_on_the_event_loop() -> None:
+    threads: list[int] = []
+    def lookup(ids: list[str]) -> list[dict]:
+        threads.append(threading.get_ident())
+        return []
+    runtime = object.__new__(AgentRuntime)
+    runtime.config = SimpleNamespace(allowed_remote_agents=["remote-example"])
+    runtime._remote_agent_versions = {}
+    runtime._mongo_service = SimpleNamespace(get_remote_agents_by_ids=lookup)
+    assert await runtime._build_remote_agent_tools() == []
+    assert threads and threads[0] != threading.get_ident()
+
+
+async def test_cache_validation_is_offloaded_and_single_flight() -> None:
+    threads: list[int] = []
+    started = threading.Event()
+    release = threading.Event()
+    def stale(config: object, servers: list) -> bool:
+        threads.append(threading.get_ident())
+        started.set()
+        assert release.wait(timeout=5)
+        return False
+    runtime = SimpleNamespace(is_stale=stale, idle_seconds=0, touch=Mock(), cleanup=AsyncMock())
+    config = SimpleNamespace(id="test-agent")
+    cache = AgentRuntimeCache(max_size=2)
+    cache._cache["test-agent:test-session"] = runtime
+    tasks = [asyncio.create_task(cache.get_or_create(config, [], "test-session")) for _ in range(5)]
+    try:
+        assert await asyncio.to_thread(started.wait, 2)
+        await asyncio.sleep(0)
+        assert len(threads) == 1
+        release.set()
+        assert await asyncio.gather(*tasks) == [runtime] * 5
+        assert threads[0] != threading.get_ident()
+        assert cache._pending == {}
+    finally:
+        release.set()
+        await asyncio.gather(*tasks, return_exceptions=True)
+        await cache.clear()

@@ -55,6 +55,9 @@ class Settings(BaseSettings):
     autonomous_runs_collection: str = "autonomous_runs"
     remote_agents_collection: str = "remote_agents"
 
+    # Exact HTTP origins permitted for local/private A2A deployments. HTTPS is the default.
+    remote_a2a_allowed_http_origins: list[str] = []
+
     # CORS
     cors_origins: list[str] = ["*"]
 

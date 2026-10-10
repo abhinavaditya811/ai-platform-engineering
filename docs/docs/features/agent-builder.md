@@ -142,7 +142,7 @@ and skills later without rebuilding the agent.
 - Configure `REMOTE_AGENT_URLS` as a comma-separated deployment seed when
   needed. Seeded entries still need to be selected in the agent's Advanced step.
 - A2A tools use the official Python SDK for JSON-RPC and HTTP+JSON protocol
-  negotiation, forward the caller's bearer token, and enforce the configured
+  negotiation, send the configured authentication header (caller JWT, saved secret, or connected credential), and enforce the configured
   per-agent timeout.
 - Built-in tools include URL fetch, current date and time, user information,
   wait, human input requests, and workflow execution.

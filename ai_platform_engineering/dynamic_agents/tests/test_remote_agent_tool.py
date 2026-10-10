@@ -8,6 +8,7 @@ import threading
 import time
 from contextlib import contextmanager
 from typing import Any
+from unittest.mock import AsyncMock
 
 import httpx
 import pytest
@@ -70,7 +71,7 @@ class _EchoExecutor(AgentExecutor):
 
 @contextmanager
 def _sdk_agent_server(
-    protocol_binding: str = "JSONRPC", executor: AgentExecutor | None = None, streaming: bool = False
+    protocol_binding: str = "JSONRPC", executor: AgentExecutor | None = None, streaming: bool = False, advertised_url: str | None = None
 ):
     with socket.socket() as sock:
         sock.bind(("127.0.0.1", 0))
@@ -83,7 +84,7 @@ def _sdk_agent_server(
         capabilities=AgentCapabilities(streaming=streaming),
         default_input_modes=["text/plain"],
         default_output_modes=["text/plain"],
-        supported_interfaces=[AgentInterface(url=endpoint, protocol_binding=protocol_binding, protocol_version="1.0")],
+        supported_interfaces=[AgentInterface(url=advertised_url or endpoint, protocol_binding=protocol_binding, protocol_version="1.0")],
     )
     handler = DefaultRequestHandler(
         agent_executor=executor or _EchoExecutor(),
@@ -124,7 +125,7 @@ def _sdk_agent_server(
 async def test_remote_tool_uses_sdk_contract_and_forwards_request_token():
     with _sdk_agent_server() as endpoint:
         tool = await create_remote_agent_tool(
-            a2a_url=endpoint,
+            a2a_url=endpoint, allowed_http_origins=[endpoint],
             name="Example Echo Agent",
             description="Echoes a message.",
             bearer_token="stale-token",
@@ -180,7 +181,7 @@ async def test_selected_auth_reaches_card_and_agent_and_resolves_each_caller(
         protocol_binding, executor=_StreamingExecutor() if streaming else None, streaming=streaming
     ) as endpoint:
         tool = await create_remote_agent_tool(
-            a2a_url=endpoint,
+            a2a_url=endpoint, allowed_http_origins=[endpoint],
             name="Example Agent",
             credential_source=source,
             credential_api_url="http://credentials.example.test/api/credentials",
@@ -227,7 +228,7 @@ async def test_secret_permission_denial_stops_a2a_requests(monkeypatch: pytest.M
     monkeypatch.setattr(CredentialExchangeClient, "_post", deny)
     with _sdk_agent_server() as endpoint:
         tool = await create_remote_agent_tool(
-            a2a_url=endpoint,
+            a2a_url=endpoint, allowed_http_origins=[endpoint],
             name="Example Agent",
             bearer_token="caller",
             credential_source={
@@ -266,7 +267,7 @@ class _StreamingExecutor(AgentExecutor):
 @pytest.mark.parametrize("binding", ["JSONRPC", "HTTP+JSON"])
 async def test_streamed_sdk_artifacts_reach_graph_before_tool_completion(binding: str) -> None:
     with _sdk_agent_server(binding, executor=_StreamingExecutor(), streaming=True) as endpoint:
-        tool = await create_remote_agent_tool(a2a_url=endpoint, name="remote", streaming=True, bearer_token="caller")
+        tool = await create_remote_agent_tool(a2a_url=endpoint, allowed_http_origins=[endpoint], name="remote", streaming=True, bearer_token="caller")
         builder = StateGraph(MessagesState)
         builder.add_node("tools", ToolNode([tool]))
         builder.add_edge(START, "tools")
@@ -298,5 +299,28 @@ async def test_streamed_sdk_artifacts_reach_graph_before_tool_completion(binding
 
 async def test_streaming_opt_in_falls_back_for_non_streaming_card() -> None:
     with _sdk_agent_server() as endpoint:
-        tool = await create_remote_agent_tool(a2a_url=endpoint, streaming=True, bearer_token="caller")
+        tool = await create_remote_agent_tool(a2a_url=endpoint, allowed_http_origins=[endpoint], streaming=True, bearer_token="caller")
         assert await tool.ainvoke({"message": "hello"}) == "echo: hello"
+
+
+@pytest.mark.parametrize("kind", ["caller_token", "secret_ref", "provider_connection"])
+async def test_plaintext_endpoint_rejected_before_credentials_or_network(kind: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    resolver = AsyncMock()
+    monkeypatch.setattr(RemoteAgentTool, "_resolve_auth_headers", resolver)
+    tool = RemoteAgentTool(name="example", description="example", a2a_url="http://agent.example.test/",
+                           credential_source={"kind": kind})
+    with pytest.raises(ValueError, match="HTTPS"):
+        await tool.ainvoke({"message": "hello"})
+    resolver.assert_not_awaited()
+
+
+@pytest.mark.parametrize("binding", ["JSONRPC", "HTTP+JSON"])
+async def test_card_cannot_send_credentials_to_another_origin(binding: str) -> None:
+    with _sdk_agent_server(binding) as untrusted:
+        with _sdk_agent_server(binding, advertised_url=untrusted) as endpoint:
+            tool = await create_remote_agent_tool(a2a_url=endpoint, allowed_http_origins=[endpoint],
+                                                  name="example", bearer_token="test-caller")
+            with pytest.raises(Exception, match="untrusted origin"):
+                await tool.ainvoke({"message": "hello"})
+            # Only the configured origin's card was requested, no transport call reached the other server.
+            assert len(_CaptureAuthorization.requests) == 1

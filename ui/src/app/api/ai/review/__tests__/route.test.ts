@@ -13,6 +13,7 @@
  * These tests pin both required headers (Authorization + X-User-Context)
  * so a future refactor can't silently regress.
  */
+process.env.DA_USER_CONTEXT_HMAC_SECRET = "test-signing-key";
 
 import { createHash } from "node:crypto";
 import { NextRequest } from "next/server";
@@ -192,7 +193,7 @@ describe("/api/ai/review POST — header forwarding to dynamic-agents", () => {
     );
   });
 
-  it("omits Authorization when the caller has no bearer token (anonymous local dev)", async () => {
+  it("rejects requests without a bearer before calling Dynamic Agents", async () => {
     mockAuthenticateRequest.mockResolvedValueOnce({
       subject: "anon",
       email: "anon@example.com",
@@ -212,12 +213,7 @@ describe("/api/ai/review POST — header forwarding to dynamic-agents", () => {
       content_hash: hashContent(content),
     });
 
-    await POST(req);
-    const [headers] = mockFetchAssistantSuggest.mock.calls[0] as [
-      Record<string, string>,
-      unknown,
-    ];
-    expect(headers.Authorization).toBeUndefined();
-    expect(headers["X-User-Context"]).toBe("BASE64_USER_CTX");
+    await expect(POST(req)).rejects.toThrow("A bearer token is required");
+    expect(mockFetchAssistantSuggest).not.toHaveBeenCalled();
   });
 });

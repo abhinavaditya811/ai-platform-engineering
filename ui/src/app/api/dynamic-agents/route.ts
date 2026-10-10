@@ -835,6 +835,7 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
   // Build document with explicit field allowlist (Security VII)
   const ownerSubject = requireStableSubject(session);
   const now = new Date();
+  const allowedRemoteAgents = await validateRemoteAgentIds(body.allowed_remote_agents);
   const doc: DynamicAgentConfig = {
     _id: agentId,
     name: body.name as string,
@@ -842,8 +843,8 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
     system_prompt: body.system_prompt as string,
     allowed_tools:
       (body.allowed_tools as Record<string, string[] | boolean>) ?? {},
-    allowed_remote_agents: await validateRemoteAgentIds(body.allowed_remote_agents),
-    remote_agent_timeouts: normalizeRemoteAgentTimeouts(body.remote_agent_timeouts, body.allowed_remote_agents),
+    allowed_remote_agents: allowedRemoteAgents,
+    remote_agent_timeouts: normalizeRemoteAgentTimeouts(body.remote_agent_timeouts, allowedRemoteAgents),
     builtin_tools: body.builtin_tools ?? undefined,
     model: body.model as DynamicAgentConfig["model"],
     visibility,

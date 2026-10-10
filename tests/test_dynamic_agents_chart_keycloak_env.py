@@ -262,3 +262,10 @@ def test_umbrella_chart_documents_keycloak_env_contract() -> None:
     deployment = _find_deployment(docs)
     kc_env = next(e for e in _container_env(deployment) if e.get("name") == "KEYCLOAK_URL")
     assert kc_env["value"] == "http://test-keycloak:8080"
+
+
+def test_gateway_context_secret_is_wired_separately_from_agent_tool_context() -> None:
+    docs = _helm_template("userContext.existingSecret.name=test-user-context", "userContext.existingSecret.key=signing-key")
+    env = _container_env(_find_deployment(docs))
+    signing = next(entry for entry in env if entry.get("name") == "DA_USER_CONTEXT_HMAC_SECRET")
+    assert signing["valueFrom"]["secretKeyRef"] == {"name": "test-user-context", "key": "signing-key"}

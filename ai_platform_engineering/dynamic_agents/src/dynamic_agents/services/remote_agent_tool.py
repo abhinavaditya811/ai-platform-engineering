@@ -8,8 +8,7 @@ from typing import Any
 from urllib.parse import urlparse
 
 import httpx
-from a2a.client import ClientCallContext, ClientCallInterceptor, ClientConfig, ClientFactory
-from a2a.client.interceptors import AfterArgs, BeforeArgs
+from a2a.client import ClientCallContext, ClientConfig, ClientFactory
 from a2a.types import Message, Part, Role, SendMessageRequest, TaskState
 from langchain_core.tools import BaseTool
 from langgraph.prebuilt import ToolRuntime
@@ -17,6 +16,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from dynamic_agents.auth.token_context import current_user_token
 from dynamic_agents.models import RemoteAgentCredentialSource
+from dynamic_agents.services.a2a_destination import A2ADestinationPolicy
 from dynamic_agents.services.credential_exchange import CredentialExchangeClient
 
 _UNSAFE_NAME_CHARS = re.compile(r"[^a-zA-Z0-9_-]+")
@@ -101,25 +101,6 @@ class _RemoteAgentInput(BaseModel):
     message: str = Field(description="The message to send to the remote agent")
 
 
-class _RequestHeadersInterceptor(ClientCallInterceptor):
-    """Attach the selected authentication headers to every SDK request."""
-
-    def __init__(self, headers: dict[str, str]) -> None:
-        self._headers = headers
-
-    async def before(self, args: BeforeArgs) -> None:
-        if not self._headers:
-            return
-        context = args.context or ClientCallContext()
-        headers = dict(context.service_parameters or {})
-        headers.update(self._headers)
-        context.service_parameters = headers
-        args.context = context
-
-    async def after(self, args: AfterArgs) -> None:
-        return None
-
-
 async def resolve_remote_agent_auth_headers(
     credential_source: dict[str, Any] | None,
     *,
@@ -175,6 +156,7 @@ class RemoteAgentTool(BaseTool):
     credential_service_audience: str = "caipe-credential-service"
     timeout: int = 120
     streaming: bool = False
+    allowed_http_origins: list[str] = Field(default_factory=list)
 
     args_schema: type[BaseModel] = _RemoteAgentInput
 
@@ -192,10 +174,13 @@ class RemoteAgentTool(BaseTool):
     async def _arun(self, message: str, runtime: ToolRuntime | None = None) -> str:
         # The runtime cache outlives individual requests, so resolve caller-scoped
         # auth at tool-call time using the active request token.
+        policy = A2ADestinationPolicy(self.a2a_url, self.allowed_http_origins)
         token = current_user_token.get() or self.bearer_token
         headers = await self._resolve_auth_headers(token)
         timeout = httpx.Timeout(float(self.timeout))
-        async with httpx.AsyncClient(timeout=timeout, headers=headers) as http_client:
+        async with httpx.AsyncClient(
+            timeout=timeout, follow_redirects=False, event_hooks={"request": [policy.request_hook(headers)]}
+        ) as http_client:
             factory = ClientFactory(
                 ClientConfig(
                     streaming=self.streaming,
@@ -205,7 +190,6 @@ class RemoteAgentTool(BaseTool):
             )
             client = await factory.create_from_url(
                 self.a2a_url,
-                interceptors=[_RequestHeadersInterceptor(headers)],
                 resolver_http_kwargs={"timeout": timeout},
             )
             try:
@@ -242,6 +226,7 @@ async def create_remote_agent_tool(
     credential_service_audience: str = "caipe-credential-service",
     timeout: int = 120,
     streaming: bool = False,
+    allowed_http_origins: list[str] | None = None,
 ) -> RemoteAgentTool:
     """Create a tool from registry metadata; SDK handles protocol negotiation.
 
@@ -267,4 +252,5 @@ async def create_remote_agent_tool(
         credential_service_audience=credential_service_audience,
         timeout=timeout,
         streaming=streaming,
+        allowed_http_origins=allowed_http_origins or [],
     )

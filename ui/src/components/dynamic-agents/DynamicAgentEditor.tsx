@@ -360,7 +360,12 @@ function AdvancedStep({
       >
         <RemoteAgentsPicker
           value={allowedRemoteAgents}
-          onChange={setAllowedRemoteAgents}
+          onChange={(ids) => {
+          setAllowedRemoteAgents(ids);
+          setRemoteAgentTimeouts((current) => Object.fromEntries(
+            Object.entries(current).filter(([id]) => ids.includes(id)),
+          ));
+        }}
           timeoutValues={remoteAgentTimeouts}
           onTimeoutChange={(id, seconds) =>
             setRemoteAgentTimeouts((current) => ({ ...current, [id]: seconds }))
@@ -1225,7 +1230,7 @@ export function DynamicAgentEditor({
             visibility === "team" ? sharedWithTeams : undefined,
           allowed_tools: allowedTools,
           allowed_remote_agents: allowedRemoteAgents,
-          remote_agent_timeouts: remoteAgentTimeouts,
+          remote_agent_timeouts: Object.fromEntries(Object.entries(remoteAgentTimeouts).filter(([id]) => allowedRemoteAgents.includes(id))),
           builtin_tools: builtinTools,
           subagents: subagents.length > 0 ? subagents : undefined,
           skills,
@@ -1277,7 +1282,7 @@ export function DynamicAgentEditor({
             visibility === "team" ? sharedWithTeams : undefined,
           allowed_tools: allowedTools,
           allowed_remote_agents: allowedRemoteAgents,
-          remote_agent_timeouts: remoteAgentTimeouts,
+          remote_agent_timeouts: Object.fromEntries(Object.entries(remoteAgentTimeouts).filter(([id]) => allowedRemoteAgents.includes(id))),
           builtin_tools: builtinTools,
           subagents: subagents.length > 0 ? subagents : undefined,
           skills,

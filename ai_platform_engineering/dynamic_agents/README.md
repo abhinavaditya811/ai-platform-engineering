@@ -430,3 +430,20 @@ dynamic_agents/
 - [sample_a2a_agents](https://github.com/caipe-io/sample_a2a_agents) owns the Netutils and Weather example servers, their SDK adapter, tests, Docker image, and Compose/gateway configuration.
 - Follow that repository's setup guide to attach the examples to the running platform network. They are not bundled in the Dynamic Agents image or platform Compose files.
 - Register Netutils for direct A2A calls or Weather through its Keycloak JWT gateway in **Advanced > Remote A2A Agents**. Select both, optionally enable **Stream responses**, and **Save Changes**.
+
+### Authentication and destination policy
+
+- Keycloak bearer validation is required, including with `DEBUG=true`.
+- Set the same `DA_USER_CONTEXT_HMAC_SECRET` in the UI and Dynamic Agents.
+  Autonomous Agents uses `DYNAMIC_AGENTS_USER_CONTEXT_HMAC_SECRET` with that same value.
+  Compose derives this key from `NEXTAUTH_SECRET` when no dedicated key is set.
+- Gateway context uses a `v2` HMAC signature over the timestamp, bearer header and
+  encoded context. DA rejects unsigned, modified, expired or bearer-mismatched context.
+- Helm: configure identical `userContext.existingSecret.name` and `.key` references
+  in `caipe-ui`, `dynamic-agents` and (when enabled) `autonomous-agents`.
+- A2A credentials are sent only to the registered origin. Agent Cards that advertise
+  another origin are rejected; register the externally reachable gateway origin instead.
+- HTTPS is required by default. For private/local Docker examples, set
+  `REMOTE_A2A_ALLOWED_HTTP_ORIGINS=["http://netutils-agent:8120","http://weather-agentgateway:4000"]`
+  in the DA deployment. Trusting HTTP permits plaintext credential transmission on
+  that network; do not add public HTTP origins.

@@ -6,13 +6,20 @@ OIDC authentication and session management.  The gateway injects a trusted
 authorization flags.
 
 JWT middleware validates the Keycloak bearer before this dependency runs.
+Gateway context must also have a fresh signature bound to that same bearer.
 """
 
 import base64
+import binascii
+import hashlib
+import hmac
 import json
 import logging
+import os
+import time
 
 from fastapi import Depends, HTTPException, Request
+from pydantic import ValidationError
 
 from dynamic_agents.models import UserContext
 
@@ -57,16 +64,37 @@ async def get_user_context(
             ),
         )
 
+    secret = os.environ.get("DA_USER_CONTEXT_HMAC_SECRET", "").strip()
+    if not secret:
+        raise HTTPException(status_code=503, detail="Gateway user-context signing is not configured")
+    authorization = request.headers.get("Authorization", "").strip()
+    timestamp = request.headers.get("X-User-Context-Timestamp", "")
+    signature = request.headers.get("X-User-Context-Signature", "")
     try:
-        decoded = base64.b64decode(header)
+        fresh = abs(time.time() - int(timestamp)) <= 120
+    except ValueError:
+        fresh = False
+    digest = hmac.new(
+        secret.encode(), f"{timestamp}\n{authorization}\n{header}".encode(), hashlib.sha256
+    ).hexdigest()
+    if (
+        not authorization.lower().startswith("bearer ")
+        or not authorization[7:].strip()
+        or not fresh
+        or not hmac.compare_digest(signature.encode(), f"v2={digest}".encode())
+    ):
+        raise HTTPException(status_code=401, detail="Invalid or expired gateway user-context signature")
+
+    try:
+        decoded = base64.b64decode(header, validate=True)
         data = json.loads(decoded)
         return UserContext(**data)
-    except Exception as e:
-        logger.warning(f"Malformed X-User-Context header: {e}")
+    except (binascii.Error, ValueError, TypeError, ValidationError) as exc:
+        logger.warning("Malformed X-User-Context header")
         raise HTTPException(
             status_code=400,
             detail="Malformed X-User-Context header",
-        )
+        ) from exc
 
 
 # Alias for backward compatibility with routes that import get_current_user
