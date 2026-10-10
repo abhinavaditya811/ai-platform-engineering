@@ -1,5 +1,6 @@
 "use client";
 
+import { isDevAnonymousAuthEnabled } from "@/lib/auth/dev-auth-provider";
 import type { KbTabGatesMap,KbTabKey } from "@/lib/rbac/types";
 import { useSession } from "next-auth/react";
 import { useCallback,useEffect,useRef,useState } from "react";
@@ -14,6 +15,18 @@ const EMPTY_GATES: KbTabGatesMap = {
   kb_count: 0,
   can_ingest: false,
   can_search: false,
+};
+
+const DEV_AUTH_GATES: KbTabGatesMap = {
+  search: true,
+  collections: true,
+  data_sources: true,
+  graph: true,
+  mcp_tools: true,
+  has_any_kb: true,
+  kb_count: -1,
+  can_ingest: true,
+  can_search: true,
 };
 
 interface KbTabGatesState {
@@ -48,8 +61,17 @@ export function useKbTabGates(): KbTabGatesState {
   const [error, setError] = useState<string | null>(null);
   const [orgAdminBypass, setOrgAdminBypass] = useState(false);
   const lastTokenRef = useRef<string | undefined>(undefined);
+  const devAuthEnabled = isDevAnonymousAuthEnabled();
 
   const fetchGates = useCallback(async () => {
+    if (devAuthEnabled) {
+      setGates(DEV_AUTH_GATES);
+      setOrgAdminBypass(true);
+      setError(null);
+      setLoading(false);
+      return;
+    }
+
     if (status !== "authenticated") {
       setLoading(false);
       return;
@@ -74,11 +96,17 @@ export function useKbTabGates(): KbTabGatesState {
     } finally {
       setLoading(false);
     }
-  }, [status]);
+  }, [devAuthEnabled, status]);
 
   useEffect(() => {
     if (status === "loading") return;
     if (status === "unauthenticated") {
+      if (devAuthEnabled) {
+        setGates(DEV_AUTH_GATES);
+        setOrgAdminBypass(true);
+        setLoading(false);
+        return;
+      }
       setGates(EMPTY_GATES);
       setOrgAdminBypass(false);
       setLoading(false);
@@ -94,7 +122,7 @@ export function useKbTabGates(): KbTabGatesState {
       lastTokenRef.current = stableKey;
       fetchGates();
     }
-  }, [session, status, fetchGates]);
+  }, [session, status, fetchGates, devAuthEnabled]);
 
   const visibleTabs = (Object.entries(gates) as [string, unknown][])
     .filter((entry): entry is [KbTabKey, boolean] => {

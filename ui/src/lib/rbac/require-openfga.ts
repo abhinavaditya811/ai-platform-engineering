@@ -1,4 +1,5 @@
 import { ApiError } from "@/lib/api-error";
+import { isDevAnonymousAuthEnabled } from "@/lib/auth/dev-auth-provider";
 import {
 adminSurfaceObject,
 userProfileObject,
@@ -36,6 +37,10 @@ async function requireDerivedTuple(
   object: string,
   capability: string
 ): Promise<void> {
+  if (isDevAnonymousAuthEnabled()) {
+    return;
+  }
+
   const subject = session.sub?.trim();
   if (!subject) {
     throw new ApiError("Your session has expired. Please sign in again.", 401, "NO_TOKEN", "session_expired", "sign_in");
@@ -95,6 +100,8 @@ export async function requireUserProfileRead(
   session: OpenFgaSessionSubject,
   subject: string
 ): Promise<void> {
+  if (isDevAnonymousAuthEnabled()) return;
+
   const caller = session.sub?.trim();
   if (!caller) {
     throw new ApiError("Your session has expired. Please sign in again.", 401, "NO_TOKEN", "session_expired", "sign_in");
@@ -119,6 +126,8 @@ export async function requireUserProfileReadAsActor(
   actor: UserProfileReadActor,
   subject: string,
 ): Promise<void> {
+  if (isDevAnonymousAuthEnabled()) return;
+
   const openfgaUser = actor.openfgaUser.trim();
   if (!openfgaUser) {
     throw new ApiError("A stable preview subject is required.", 401, "NO_TOKEN", "session_expired", "sign_in");

@@ -78,7 +78,7 @@ async function proxyAgenticAppRequest(
     : new NextRequest(request.url, { headers: request.headers });
   let auth: Awaited<ReturnType<typeof getAuthenticatedUser>>;
   try {
-    auth = await getAuthenticatedUser(nextRequest);
+    auth = await getAuthenticatedUser(nextRequest, { allowAnonymous: false });
   } catch (error) {
     if (error instanceof ApiError) {
       if (error.statusCode === 401 && isDocumentNavigation(request)) {

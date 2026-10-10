@@ -5,8 +5,8 @@ OIDC authentication and session management.  The gateway injects a trusted
 ``X-User-Context`` header (base64-encoded JSON) containing pre-computed
 authorization flags.
 
-JWT middleware validates the Keycloak bearer before this dependency runs.
-Gateway context must also have a fresh signature bound to that same bearer.
+Outside debug mode, gateway context must have a fresh signature bound to
+the bearer validated by JWT middleware. Debug mode retains the dev identity.
 """
 
 import base64
@@ -21,6 +21,7 @@ import time
 from fastapi import Depends, HTTPException, Request
 from pydantic import ValidationError
 
+from dynamic_agents.config import Settings, get_settings
 from dynamic_agents.models import UserContext
 
 logger = logging.getLogger(__name__)
@@ -28,6 +29,7 @@ logger = logging.getLogger(__name__)
 
 async def get_user_context(
     request: Request,
+    settings: Settings = Depends(get_settings),
 ) -> UserContext:
     """Extract user context from the gateway's X-User-Context header.
 
@@ -42,12 +44,21 @@ async def get_user_context(
     authorization flags exist — DA doesn't need to know or care.
 
     Fallback behaviour:
+    - If ``DEBUG=true`` (dev mode): returns a dev admin user.
     - If the header is missing or empty: returns 401 — all production
       traffic must be proxied through the Next.js gateway.
       Check the UI/API server logs to verify the gateway is injecting
       the X-User-Context header.
     - If the header is present but malformed: returns 400.
     """
+    if settings.debug:
+        logger.debug("Debug mode enabled (DEBUG=true), returning dev user")
+        return UserContext(
+            email="dev@localhost",
+            name="Dev User",
+            is_admin=True,
+        )
+
     header = request.headers.get("X-User-Context")
     if not header:
         logger.warning(

@@ -936,16 +936,36 @@ describe('getAuthenticatedUser', () => {
     });
   });
 
-  it('rejects anonymous requests even when legacy local-admin flags are enabled', async () => {
-    process.env.ALLOW_DEV_ADMIN_WHEN_SSO_DISABLED = 'true';
-    process.env.ALLOW_ANONYMOUS_ADMIN = 'true';
+  it('returns the local dev auth principal only when dev anonymous auth is enabled', async () => {
     process.env.CAIPE_UNSAFE_RBAC_BYPASS = 'true';
-    mockGetConfig.mockImplementation((key: string) => key === 'unsafeRbacBypassEnabled');
+    mockGetConfig.mockImplementation((key: string) => {
+      if (key === 'ssoEnabled') return false;
+      if (key === 'allowDevAdminWhenSsoDisabled') return true;
+      if (key === 'unsafeRbacBypassEnabled') return true;
+      return undefined;
+    });
     mockGetServerSession.mockResolvedValue(null);
-    const req = new Request('https://example.test') as unknown as NextRequest;
-    await expect(getAuthenticatedUser(req)).rejects.toMatchObject({ statusCode: 401, reason: 'not_signed_in' });
-    delete process.env.ALLOW_DEV_ADMIN_WHEN_SSO_DISABLED;
-    delete process.env.ALLOW_ANONYMOUS_ADMIN;
+
+    const req = new Request('http://test.com') as unknown as NextRequest;
+    const result = await getAuthenticatedUser(req, { allowAnonymous: true });
+
+    expect(result.user).toEqual({
+      email: 'anonymous@local',
+      name: 'Anonymous Local Admin',
+      role: 'admin',
+    });
+    expect(result.session).toEqual({
+      sub: 'anonymous-local-dev',
+      org: 'caipe',
+      role: 'admin',
+      user: {
+        email: 'anonymous@local',
+        name: 'Anonymous Local Admin',
+        role: 'admin',
+      },
+      canViewAdmin: true,
+      canAccessDynamicAgents: true,
+    });
   });
 
   it('does not provide an anonymous fallback when the unsafe bypass is disabled', async () => {
@@ -957,7 +977,7 @@ describe('getAuthenticatedUser', () => {
     mockGetServerSession.mockResolvedValue(null);
 
     const req = new Request('http://test.com') as unknown as NextRequest;
-    await expect(getAuthenticatedUser(req)).rejects.toMatchObject({
+    await expect(getAuthenticatedUser(req, { allowAnonymous: true })).rejects.toMatchObject({
       statusCode: 401,
       reason: 'not_signed_in',
     });

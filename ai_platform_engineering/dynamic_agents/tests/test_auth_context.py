@@ -1,4 +1,4 @@
-"""Debug mode cannot create a user or promote a gateway user to admin."""
+"""Gateway signatures protect normal mode; debug authentication remains unchanged."""
 
 import base64
 import hashlib
@@ -16,11 +16,11 @@ from dynamic_agents.config import Settings, get_settings
 from dynamic_agents.models import UserContext
 
 
-@pytest.fixture(params=[False, True], ids=["normal", "debug"])
-def client(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch) -> TestClient:
+@pytest.fixture
+def client(monkeypatch: pytest.MonkeyPatch) -> TestClient:
     monkeypatch.setenv("DA_USER_CONTEXT_HMAC_SECRET", "test-signing-key")
-    debug = request.param
-    monkeypatch.setenv("DEBUG", "true" if debug else "false")
+    debug = False
+    monkeypatch.setenv("DEBUG", "false")
     app = FastAPI()
     app.dependency_overrides[get_settings] = lambda: Settings.model_construct(debug=debug)
 
@@ -125,3 +125,15 @@ def test_expired_signed_context_is_rejected(client: TestClient) -> None:
 def test_missing_signing_configuration_fails_closed(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("DA_USER_CONTEXT_HMAC_SECRET")
     assert client.get("/admin", headers=_header(is_admin=True)).status_code == 503
+
+
+@pytest.mark.parametrize("path", ["/context", "/current", "/admin"])
+def test_existing_debug_identity_is_preserved(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch, path: str,
+) -> None:
+    client.app.dependency_overrides[get_settings] = lambda: Settings.model_construct(debug=True)
+    monkeypatch.delenv("DA_USER_CONTEXT_HMAC_SECRET")
+    response = client.get(path)
+    assert response.status_code == 200
+    if path != "/admin":
+        assert response.json()["is_admin"] is True

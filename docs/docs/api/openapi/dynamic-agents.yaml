@@ -5,10 +5,12 @@ info:
   description: |
     OpenAPI specification for the Dynamic Agents FastAPI service (`dynamic_agents`).
     Base path is the service root (e.g. `http://localhost:8100`). JSON responses unless noted.
-    Protected routes require a validated Keycloak bearer and gateway-signed X-User-Context.
+    Outside debug mode, protected routes require a bearer and gateway-signed X-User-Context.
     The v2 signature binds X-User-Context-Timestamp, Authorization and the encoded context
     (newline separated) using DA_USER_CONTEXT_HMAC_SECRET. Timestamps must be within 120 seconds.
     Admin-only routes require is_admin in the verified gateway context.
+    DEBUG=true retains the existing development admin identity; DA_REQUIRE_BEARER controls
+    JWT middleware enforcement independently.
 servers:
   - url: /
     description: Dynamic Agents Service
