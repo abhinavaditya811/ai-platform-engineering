@@ -9,8 +9,6 @@ parsing run end-to-end without booting the dynamic-agents service.
 from __future__ import annotations
 
 import base64
-import hashlib
-import hmac
 import json
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -45,13 +43,6 @@ def _reset_settings_cache():
 def configured(monkeypatch):
     """Set DYNAMIC_AGENTS_URL to a fake host."""
     monkeypatch.setenv("DYNAMIC_AGENTS_URL", "http://dynamic-agents-test:8001")
-    monkeypatch.setenv("DYNAMIC_AGENTS_USER_CONTEXT_HMAC_SECRET", "test-signing-key")
-    mint_owner_token = da_client._mint_owner_bearer_token
-    async def fixture_owner_token(owner_sub: str | None, timeout: float) -> str | None:
-        if get_settings().dynamic_agents_oauth2_token_url:
-            return await mint_owner_token(owner_sub, timeout)
-        return "fixture-owner-token"
-    monkeypatch.setattr(da_client, "_mint_owner_bearer_token", fixture_owner_token)
     monkeypatch.delenv("DYNAMIC_AGENTS_OAUTH2_TOKEN_URL", raising=False)
     monkeypatch.delenv("DYNAMIC_AGENTS_OAUTH2_CLIENT_ID", raising=False)
     monkeypatch.delenv("DYNAMIC_AGENTS_OAUTH2_CLIENT_SECRET", raising=False)
@@ -169,9 +160,6 @@ class TestInvokeDynamicAgent:
         token_mint.assert_awaited_once_with("alice-uuid", 300.0)
         headers = client.post.await_args.kwargs["headers"]
         assert headers["Authorization"] == "Bearer owner-token"
-        material = f"{headers['X-User-Context-Timestamp']}\n{headers['Authorization']}\n{headers['X-User-Context']}"
-        digest = hmac.new(b"test-signing-key", material.encode(), hashlib.sha256).hexdigest()
-        assert headers["X-User-Context-Signature"] == f"v2={digest}"
 
     @pytest.mark.asyncio
     async def test_owner_bearer_uses_requested_subject_token_exchange(
@@ -712,15 +700,3 @@ class TestAutonomousFlag:
             await invoke_dynamic_agent_streaming(prompt="hi", task_id="t1", agent_id="agent-x")
         body = client.stream.call_args.kwargs["json"]
         assert body["autonomous"] is True
-
-
-async def test_task_call_requires_bearer_and_signing_key(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("DYNAMIC_AGENTS_USER_CONTEXT_HMAC_SECRET", "test-signing-key")
-    monkeypatch.setattr(da_client, "_mint_owner_bearer_token", AsyncMock(return_value=None))
-    with pytest.raises(DynamicAgentsNotConfiguredError, match="bearer token"):
-        await da_client._task_headers_with_auth("test-user@example.test", 10.0, "test-subject")
-    monkeypatch.setattr(da_client, "_mint_owner_bearer_token", AsyncMock(return_value="test-token"))
-    monkeypatch.delenv("DYNAMIC_AGENTS_USER_CONTEXT_HMAC_SECRET")
-    get_settings.cache_clear()
-    with pytest.raises(DynamicAgentsNotConfiguredError, match="signing secret"):
-        await da_client._task_headers_with_auth("test-user@example.test", 10.0, "test-subject")

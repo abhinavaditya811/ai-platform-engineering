@@ -5,21 +5,14 @@ OIDC authentication and session management.  The gateway injects a trusted
 ``X-User-Context`` header (base64-encoded JSON) containing pre-computed
 authorization flags.
 
-Outside debug mode, gateway context must have a fresh signature bound to
-the bearer validated by JWT middleware. Debug mode retains the dev identity.
+DA never validates JWTs or calls OIDC endpoints directly.
 """
 
 import base64
-import binascii
-import hashlib
-import hmac
 import json
 import logging
-import os
-import time
 
 from fastapi import Depends, HTTPException, Request
-from pydantic import ValidationError
 
 from dynamic_agents.config import Settings, get_settings
 from dynamic_agents.models import UserContext
@@ -75,37 +68,16 @@ async def get_user_context(
             ),
         )
 
-    secret = os.environ.get("DA_USER_CONTEXT_HMAC_SECRET", "").strip()
-    if not secret:
-        raise HTTPException(status_code=503, detail="Gateway user-context signing is not configured")
-    authorization = request.headers.get("Authorization", "").strip()
-    timestamp = request.headers.get("X-User-Context-Timestamp", "")
-    signature = request.headers.get("X-User-Context-Signature", "")
     try:
-        fresh = abs(time.time() - int(timestamp)) <= 120
-    except ValueError:
-        fresh = False
-    digest = hmac.new(
-        secret.encode(), f"{timestamp}\n{authorization}\n{header}".encode(), hashlib.sha256
-    ).hexdigest()
-    if (
-        not authorization.lower().startswith("bearer ")
-        or not authorization[7:].strip()
-        or not fresh
-        or not hmac.compare_digest(signature.encode(), f"v2={digest}".encode())
-    ):
-        raise HTTPException(status_code=401, detail="Invalid or expired gateway user-context signature")
-
-    try:
-        decoded = base64.b64decode(header, validate=True)
+        decoded = base64.b64decode(header)
         data = json.loads(decoded)
         return UserContext(**data)
-    except (binascii.Error, ValueError, TypeError, ValidationError) as exc:
-        logger.warning("Malformed X-User-Context header")
+    except Exception as e:
+        logger.warning(f"Malformed X-User-Context header: {e}")
         raise HTTPException(
             status_code=400,
             detail="Malformed X-User-Context header",
-        ) from exc
+        )
 
 
 # Alias for backward compatibility with routes that import get_current_user

@@ -984,12 +984,6 @@ caipe-ui:
   # For Okta sync, add the sensitive credential to the same secret:
   #   token mode → IDENTITY_SYNC_OKTA_API_TOKEN
   #   oauth mode → IDENTITY_SYNC_OKTA_OAUTH_PRIVATE_KEY (PEM PKCS#8)
-  # Shared gateway identity signature key; use the same reference in all three components.
-  userContext:
-    existingSecret:
-      name: ""
-      key: DA_USER_CONTEXT_HMAC_SECRET
-
   existingSecret: ""
 
   # Enable switch for the in-cluster MongoDB-compatible persistence subchart.
@@ -1165,12 +1159,6 @@ dynamic-agents:
     # support mTLS client certs.
     metricsPort: 0
   # ConfigMap for non-sensitive configuration
-  # Shared gateway identity signature key; use the same reference in all three components.
-  userContext:
-    existingSecret:
-      name: ""
-      key: DA_USER_CONTEXT_HMAC_SECRET
-
   config:
     # ─── Keycloak / OIDC (REQUIRED for Bearer token validation) ─────────
     # In-cluster Keycloak service URL used for the server-to-server JWKS
@@ -1272,12 +1260,6 @@ autonomous-agents:
   # ConfigMap for non-sensitive configuration.
   # DYNAMIC_AGENTS_URL defaults to the in-release dynamic-agents Service in the
   # autonomous-agents subchart helper. Set it here only to override that default.
-  # Shared gateway identity signature key; use the same reference in all three components.
-  userContext:
-    existingSecret:
-      name: ""
-      key: DA_USER_CONTEXT_HMAC_SECRET
-
   config:
     # Dynamic-agents runtime endpoint -- every autonomous task runs against a
     # dynamic agent selected by the task's dynamic_agent_id.

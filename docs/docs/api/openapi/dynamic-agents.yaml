@@ -5,12 +5,11 @@ info:
   description: |
     OpenAPI specification for the Dynamic Agents FastAPI service (`dynamic_agents`).
     Base path is the service root (e.g. `http://localhost:8100`). JSON responses unless noted.
-    Outside debug mode, protected routes require a bearer and gateway-signed X-User-Context.
-    The v2 signature binds X-User-Context-Timestamp, Authorization and the encoded context
-    (newline separated) using DA_USER_CONTEXT_HMAC_SECRET. Timestamps must be within 120 seconds.
-    Admin-only routes require is_admin in the verified gateway context.
-    DEBUG=true retains the existing development admin identity; DA_REQUIRE_BEARER controls
-    JWT middleware enforcement independently.
+    JwtAuthMiddleware validates supplied bearer tokens. Existing routes consume gateway
+    X-User-Context metadata; DEBUG=true retains the existing development admin identity.
+    Agent execution requires CAS agent-use permission. Remote Agent Card probes require
+    CAS organization-manage permission using the validated caller bearer independently
+    of DEBUG or X-User-Context flags. DA_REQUIRE_BEARER controls general middleware enforcement.
 servers:
   - url: /
     description: Dynamic Agents Service

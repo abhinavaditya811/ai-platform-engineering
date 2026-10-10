@@ -12,7 +12,6 @@ import {
 import { getCollection, isMongoDBConfigured } from "@/lib/mongodb";
 import { detectStaleRun, type WorkflowRunDocument, type WorkflowRunVisibility } from "@/lib/server/workflow-engine";
 import { deleteEventsByRun, readEventsByRun } from "@/lib/server/event-store";
-import { buildWorkflowDaAuthHeaders } from "@/lib/server/workflow-da-auth";
 import {
   requireWorkflowRunAccess,
   workflowSubjectFromSession,
@@ -143,7 +142,9 @@ export const DELETE = withErrorHandler(async (
       `${daUrl}/api/v1/files/namespace?fs_namespace=${encodeURIComponent(fsNamespace)}`,
       {
         method: "DELETE",
-        headers: buildWorkflowDaAuthHeaders(request, user, session),
+        headers: {
+          "X-User-Context": Buffer.from(JSON.stringify({ email: user.email, name: user.name })).toString("base64"),
+        },
       },
     );
   } catch { /* best-effort */ }

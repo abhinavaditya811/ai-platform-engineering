@@ -517,12 +517,12 @@ starves the event loop long enough to time out unrelated PDP decision calls.
 For browser sessions, the Web UI backend forwards the Keycloak access token to
 Dynamic Agents when it is present so the runtime can bind
 `current_user_token` and pass the same bearer to AgentGateway-backed MCP calls.
-Outside debug mode, Dynamic Agents also requires a fresh gateway signature
-bound to that bearer and the encoded `X-User-Context`. If the slim NextAuth
-cookie survives a UI restart but the server-side token cache is gone, the user
-must sign in again before the gateway can call Dynamic Agents. The existing
-explicitly enabled local dev provider can still forward context without a
-bearer; production mode cannot use that provider.
+Existing gateway context supplies identity metadata; it does not grant A2A
+registry management or agent execution permissions. Those checks use CAS with
+the validated bearer subject. If the slim NextAuth cookie survives a UI restart
+but the server-side token cache is gone, these operations require signing in
+again to obtain a bearer. The explicitly enabled local dev provider remains
+available; A2A probes still require a bearer and a CAS decision.
 
 `POST /api/v1/chat/stream/start`, `POST /api/v1/chat/invoke`,
 `POST /api/v1/chat/stream/resume`, and `POST /api/v1/chat/stream/cancel`
@@ -1718,11 +1718,11 @@ logic in OpenFGA tuples and audited ReBAC change sets.
 - `JwtAuthMiddleware` validates supplied bearer tokens and binds the current
   request token for downstream tools. `DA_REQUIRE_BEARER` controls rejection of
   requests without a bearer; health, metrics and CORS preflight remain public.
-- `get_current_user` (an alias of `get_user_context`) verifies the gateway's
-  signed identity and authorization context outside debug mode. It does not
+- `get_current_user` (an alias of `get_user_context`) reads the gateway's
+  identity and authorization metadata outside debug mode. It does not
   fetch userinfo or derive product admin from Keycloak roles.
 
-Agent execution also requires the OpenFGA agent-use decision described below.
+Agent execution also requires the CAS agent-use decision described below.
 
 ### JWT Validation Chain
 
@@ -1735,43 +1735,29 @@ The middleware validates signature, expiry, issuer and configured audience
 against Keycloak JWKS. The gateway resolves the session or bearer identity and
 product permissions before forwarding the context.
 
-### Signed Gateway User Context
+### A2A Probe Authorization Through CAS
 
-In normal mode, Dynamic Agents verifies these headers before trusting context:
+`POST /api/v1/remote-agents/probe` uses the existing CAS adapter in
+`dynamic_agents/auth/authz.py`. The adapter sends the validated caller bearer
+and its subject to `/api/authz/v1/decisions` for `manage` on
+`organization:<CAIPE_ORG_KEY>` (default organization key: `caipe`).
 
-| Header | Value |
-| --- | --- |
-| `Authorization` | The invoking caller's bearer token |
-| `X-User-Context` | Base64-encoded JSON identity and authorization flags |
-| `X-User-Context-Timestamp` | Unix seconds, within 120 seconds of server time |
-| `X-User-Context-Signature` | `v2=` followed by the SHA-256 HMAC hex digest |
+- CAS binds the subject to the authenticated caller and evaluates policy.
+- `ALLOW` permits discovery; `DENY` returns **403**; an unavailable decision
+  service returns **503**. Missing or malformed bearer context returns **401**.
+- `X-User-Context.is_admin` and `DEBUG=true` do not bypass this gate.
+- The BFF registry mutation and probe routes use the same CAS permission.
+  Authenticated authors can list names and capabilities; endpoint and credential
+  references are returned only with management permission.
+- No additional shared secret or context signature is required for A2A.
+- Existing developer login is preserved. Its removal is reviewed separately in
+  PR #2904; this feature has no dependency on that PR.
 
-The HMAC input is `timestamp + "\n" + Authorization + "\n" + encoded context`,
-using the exact trimmed authorization header sent to Dynamic Agents. This binds
-flags such as `is_admin` to the caller's bearer and limits replay duration.
-Unsigned, modified, expired or bearer-mismatched context returns **401**;
-missing signing configuration returns **503**. JWT validation and OpenFGA
-execution checks remain separate from context verification.
-
-- Set the same `DA_USER_CONTEXT_HMAC_SECRET` in the UI and Dynamic Agents.
-  Autonomous Agents uses `DYNAMIC_AGENTS_USER_CONTEXT_HMAC_SECRET` with the same
-  value. Keep this key server-side; it is not forwarded to remote agents.
-- Compose derives the signing key from `NEXTAUTH_SECRET` unless a dedicated key
-  is configured. Helm components use matching `userContext.existingSecret.name`
-  and `.key` references; the umbrella chart validates enabled components.
-- Interactive proxies, AI assist/review, workflow and autonomous callers sign
-  their context before calling Dynamic Agents.
-- Existing developer authentication is preserved: `DEBUG=true` returns the
-  existing dev admin identity before signature verification. JWT middleware's
-  `DA_REQUIRE_BEARER` setting still applies independently. The UI's existing dev
-  provider retains its production and explicit-enable guards. Removal of the
-  debug identity is reviewed separately in PR #2904; A2A has no dependency on it.
-
-### Agent-Level Authorization (OpenFGA Execution Gate)
+### Agent-Level Authorization (CAS Execution Gate)
 
 After the bearer token is validated by `JwtAuthMiddleware`, Dynamic Agents
 decodes the already-validated JWT payload only to extract `sub` and repeats the
-same OpenFGA check used by the Web UI backend:
+same CAS agent-use decision used by the Web UI backend, evaluated through OpenFGA:
 
 ```text
 user:<sub> can_use agent:<agent_id>
@@ -1780,7 +1766,7 @@ user:<sub> can_use agent:<agent_id>
 The runtime check runs before agent lookup, MCP server lookup, runtime cache
 creation, non-streaming invocation, or stream resume work. This second layer is
 required because the runtime must not trust the Web UI backend as the only enforcement
-point. Denials return `403 / pdp_denied`; OpenFGA outages return
+point. Denials return `403 / pdp_denied`; authorization service outages return
 `503 / pdp_unavailable`; missing or malformed bearer context returns a
 structured `401`.
 
@@ -1826,8 +1812,8 @@ allowlist and the enforcement graph use the same wildcard semantics.
 
 ### Remote A2A Authorization and Credentials
 
-- Registry writes and card probes require the UI's admin-view permission. The
-  Dynamic Agents probe also requires admin in verified gateway context.
+- Registry writes and card probes require CAS organization `manage` permission.
+  The Dynamic Agents probe repeats this decision with the validated bearer.
 - Parent agents and subagents select registered endpoints in **Advanced >
   Remote A2A Agents**. Each selected entry becomes a callable tool; changing,
   disabling or deleting an entry invalidates cached tools on the next request.
@@ -1836,11 +1822,13 @@ allowlist and the enforcement graph use the same wildcard semantics.
   caller permission to use that secret; **Connected credential** resolves the
   caller's own provider connection. Registry documents persist references only.
 - The configured header receives the credential. `Authorization` uses a Bearer
-  value; other allowed headers receive the value directly. Neither gateway
-  context nor its signing key is sent to the remote agent.
+  value; other allowed headers receive the value directly. Gateway
+  user-context metadata is not sent to the remote agent.
 - A2A uses the registered endpoint. Register an AgentGateway URL to apply its
   JWT policy; `AGENT_GATEWAY_URL` controls MCP routing, not A2A routing. A2A does
-  not reuse MCP-specific `agent can_call tool` relationships.
+  not reuse MCP-specific `agent can_call tool` relationships. The local Weather
+  gateway validates JWTs; it has no `ext_authz` policy configured. Deployments
+  that need external policy enforcement must configure it on that gateway.
 - HTTPS is required by default. `REMOTE_A2A_ALLOWED_HTTP_ORIGINS` permits exact
   local/private origins. Discovery and transport attach credentials only after
   origin validation; foreign Agent Card interfaces and redirects are rejected.
@@ -1853,7 +1841,6 @@ allowlist and the enforcement graph use the same wildcard semantics.
 | Variable                          | Default                                         | Security note                                                                                                                                                                                  |
 | --------------------------------- | ----------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `DEBUG` | `false` | Existing dev identity fallback in `get_user_context`; JWT middleware enforcement is configured separately. |
-| `DA_USER_CONTEXT_HMAC_SECRET` | — | Shared server-side signing key required for gateway context verification in normal mode. |
 | `REMOTE_A2A_ALLOWED_HTTP_ORIGINS` | `[]` | Exact trusted HTTP origins for local/private A2A deployments; other endpoints require HTTPS. |
 | `OIDC_ISSUER`                     | —                                               | Validated against `iss` claim; tokens from other issuers are rejected                                                                                                                          |
 | `OIDC_CLIENT_ID`                  | —                                               | Identifies the Web UI client used by browser-facing flows. Dynamic Agents audience validation uses `KEYCLOAK_AUDIENCE` / `OIDC_AUDIENCE`.                                                      |
@@ -1861,7 +1848,7 @@ allowlist and the enforcement graph use the same wildcard semantics.
 | `KEYCLOAK_AUDIENCE` / `OIDC_AUDIENCE` | `caipe-platform,agentgateway`               | Comma-separated audiences accepted for Dynamic Agents bearer validation. Include `caipe-ui` when browser session tokens carry that audience.                                                     |
 | `OIDC_REQUIRED_GROUP`             | —                                               | Optional deployment-specific Web UI admission gate; users missing this upstream group are denied before product authorization runs                                                              |
 | `OIDC_REQUIRED_ADMIN_GROUP`       | —                                               | Deprecated for CAIPE product admin. Map enterprise admin groups to CAIPE teams through Identity Group Sync, then grant OpenFGA `admin` on `organization:<org>`.                                 |
-| `DA_REQUIRE_BEARER` | `false` | JWT middleware rejects missing bearer tokens when enabled. Normal gateway context verification independently requires a bearer and signature. |
+| `DA_REQUIRE_BEARER` | `false` | JWT middleware rejects missing bearer tokens when enabled. CAS execution and A2A probe checks independently require a bearer. |
 | `OPENFGA_HTTP`                    | — (`http://openfga:8080` in Docker Compose dev) | OpenFGA API base URL used for runtime `can_use` checks                                                                                                                                         |
 | `OPENFGA_STORE_ID`                | —                                               | Optional explicit OpenFGA store id; takes precedence over store-name discovery                                                                                                                 |
 | `OPENFGA_STORE_NAME`              | `caipe-openfga`                                 | Store name used when discovering the OpenFGA store id; Docker Compose dev wires this into Dynamic Agents alongside the Web UI backend                                                          |

@@ -10,7 +10,7 @@ from a2a.client import A2ACardResolver, AgentCardResolutionError
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
-from dynamic_agents.auth.auth import UserContext, require_admin
+from dynamic_agents.auth.authz import require_org_admin_permission
 from dynamic_agents.auth.token_context import current_user_token
 from dynamic_agents.config import get_settings
 from dynamic_agents.models import RemoteAgentCredentialSource
@@ -37,7 +37,7 @@ class RemoteAgentProbeResponse(BaseModel):
 @router.post("/probe", response_model=RemoteAgentProbeResponse)
 async def probe_remote_agent(
     payload: RemoteAgentProbeRequest,
-    _user: Annotated[UserContext, Depends(require_admin)],
+    _authorized: Annotated[None, Depends(require_org_admin_permission)],
 ) -> RemoteAgentProbeResponse:
     """Resolve an Agent Card through the official A2A SDK."""
     settings = get_settings()

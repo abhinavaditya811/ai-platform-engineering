@@ -165,8 +165,6 @@ config:
   # empty — see templates/NOTES.txt.
   KEYCLOAK_URL: ""
   OIDC_ISSUER: ""
-  # Require independently validated caller JWTs. Set false only for rollback.
-  DA_REQUIRE_BEARER: "true"
   # OpenFGA authorization service URL (in-cluster default matches umbrella chart release name)
   OPENFGA_HTTP: ""
   OPENFGA_STORE_NAME: "caipe-openfga"
@@ -240,12 +238,6 @@ agentContext:
   existingSecret:
     name: ""
     key: CAIPE_AGENT_CONTEXT_HMAC_SECRET
-
-# Secret shared with caipe-ui for signed X-User-Context headers.
-userContext:
-  existingSecret:
-    name: ""
-    key: DA_USER_CONTEXT_HMAC_SECRET
 
 # Pre-existing secret with MONGODB_URI and other sensitive values
 # Dynamic-agents uses the same MongoDB as CAIPE UI, so you can reference

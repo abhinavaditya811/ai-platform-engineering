@@ -431,19 +431,12 @@ dynamic_agents/
 
 ### Authentication and destination policy
 
-- Normal mode requires a validated bearer and signed gateway context.
+- Registry writes and Agent Card discovery require CAS `manage` permission on the configured organization.
+  The backend probe repeats this check using the validated caller JWT; context flags do not grant access.
+- Parent agent execution requires CAS `use` permission. Selected remote entries define its callable tools.
+  The remote agent or its gateway enforces its own policies with the configured credential.
 - Existing developer authentication (`DEBUG=true`) and UI dev login are unchanged.
   Their removal is reviewed separately in PR #2904; this feature has no dependency on it.
-- Set the same `DA_USER_CONTEXT_HMAC_SECRET` in the UI and Dynamic Agents.
-  Autonomous Agents uses `DYNAMIC_AGENTS_USER_CONTEXT_HMAC_SECRET` with that same value.
-  Compose derives this key from `NEXTAUTH_SECRET` when no dedicated key is set.
-- Keep the signing key server-side. The gateway sends `X-User-Context-Timestamp`
-  as Unix seconds and `X-User-Context-Signature` as `v2=<sha256 HMAC hex>`.
-  Sign `timestamp + "\n" + Authorization + "\n" + encoded context`, using the
-  exact trimmed bearer header sent to DA. Timestamps must be within 120 seconds.
-  DA rejects unsigned, modified, expired or bearer-mismatched context.
-- Helm: configure identical `userContext.existingSecret.name` and `.key` references
-  in `caipe-ui`, `dynamic-agents` and (when enabled) `autonomous-agents`.
 - A2A credentials are sent only to the registered origin. Agent Cards that advertise
   another origin are rejected; register the externally reachable gateway origin instead.
 - HTTPS is required by default. For private/local Docker examples, set

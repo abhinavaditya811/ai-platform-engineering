@@ -1,7 +1,8 @@
+import { caipeOrgKey } from "@/lib/rbac/organization";
+import { requireResourcePermission } from "@/lib/rbac/resource-authz";
 import {
   ApiError,
   getAuthFromBearerOrSession,
-  requireRbacPermission,
   successResponse,
   withErrorHandler,
 } from "@/lib/api-middleware";
@@ -13,7 +14,7 @@ const DYNAMIC_AGENTS_URL = process.env.DYNAMIC_AGENTS_URL || "http://localhost:8
 
 export const POST = withErrorHandler(async (request: NextRequest) => {
   const { session } = await getAuthFromBearerOrSession(request);
-  await requireRbacPermission(session, "admin_ui", "admin");
+  await requireResourcePermission(session, { type: "organization", id: caipeOrgKey(), action: "manage" });
   const body = await request.json().catch(() => ({})) as { endpoint?: unknown; credential_source?: unknown };
   if (typeof body.endpoint !== "string" || !body.endpoint.trim()) {
     throw new ApiError("Endpoint is required", 400, "INVALID_REMOTE_AGENT");

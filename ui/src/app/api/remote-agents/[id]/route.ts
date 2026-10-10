@@ -1,7 +1,8 @@
+import { caipeOrgKey } from "@/lib/rbac/organization";
+import { requireResourcePermission } from "@/lib/rbac/resource-authz";
 import {
   ApiError,
   getAuthFromBearerOrSession,
-  requireRbacPermission,
   successResponse,
   withErrorHandler,
 } from "@/lib/api-middleware";
@@ -20,7 +21,7 @@ interface RemoteAgentDocument extends Document {
 
 export const PUT = withErrorHandler(async (request: NextRequest, context: { params: Promise<{ id: string }> }) => {
   const { user, session } = await getAuthFromBearerOrSession(request);
-  await requireRbacPermission(session, "admin_ui", "admin");
+  await requireResourcePermission(session, { type: "organization", id: caipeOrgKey(), action: "manage" });
   const { id } = await context.params;
   const body = await request.json().catch(() => ({})) as Record<string, unknown>;
   const update: Record<string, unknown> = { updated_at: new Date().toISOString(), updated_by: user.email };
@@ -62,7 +63,7 @@ export const PUT = withErrorHandler(async (request: NextRequest, context: { para
 
 export const DELETE = withErrorHandler(async (request: NextRequest, context: { params: Promise<{ id: string }> }) => {
   const { user, session } = await getAuthFromBearerOrSession(request);
-  await requireRbacPermission(session, "admin_ui", "admin");
+  await requireResourcePermission(session, { type: "organization", id: caipeOrgKey(), action: "manage" });
   const { id } = await context.params;
   const agentConfigs = await getCollection<Document & { allowed_remote_agents?: string[] }>("dynamic_agents");
   const references = await agentConfigs.countDocuments({ allowed_remote_agents: id });

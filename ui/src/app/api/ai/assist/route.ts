@@ -23,7 +23,6 @@
  */
 
 import { authenticateRequest } from "@/lib/da-proxy";
-import { buildSignedUserContextHeaders } from "@/lib/server/user-context-signing";
 import { consume } from "@/lib/server/ai-assist-rate-limit";
 import { resolveLlmModel } from "@/lib/server/platform-llm.server";
 import {
@@ -142,7 +141,7 @@ export async function POST(request: NextRequest) {
   // admins whenever SSO is enabled.
   const headers: Record<string, string> = {};
   if (auth.userContextHeader) {
-    Object.assign(headers, buildSignedUserContextHeaders(auth.userContextHeader, `Bearer ${auth.bearerToken || ""}`));
+    headers["X-User-Context"] = auth.userContextHeader;
   }
   if (auth.bearerToken) {
     headers["Authorization"] = `Bearer ${auth.bearerToken}`;

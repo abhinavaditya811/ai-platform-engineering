@@ -21,8 +21,6 @@ Notes on the wire contract:
 from __future__ import annotations
 
 import base64
-import hashlib
-import hmac
 import json
 import logging
 import time
@@ -165,8 +163,8 @@ async def _mint_owner_bearer_token(
     Falling back to a client-credentials token here would silently execute as
     the scheduler service account and hide the owner's connected providers.
 
-    Unattended invocations require an owner bearer and a signed gateway context.
-    A partially configured OAuth client fails closed.
+    OAuth remains optional for local deployments that use the legacy trusted
+    header path. A partially configured OAuth client fails closed.
     """
     settings = get_settings()
     token_url = settings.dynamic_agents_oauth2_token_url
@@ -236,17 +234,6 @@ async def _task_headers_with_auth(
     token = await _mint_owner_bearer_token(owner_sub, timeout)
     if token:
         headers["Authorization"] = f"Bearer {token}"
-    secret = (get_settings().dynamic_agents_user_context_hmac_secret or "").strip()
-    if not token or not secret:
-        raise DynamicAgentsNotConfiguredError("A bearer token and user-context signing secret are required")
-    timestamp = str(int(time.time()))
-    digest = hmac.new(
-        secret.encode(),
-        f"{timestamp}\n{headers['Authorization']}\n{headers['X-User-Context']}".encode(),
-        hashlib.sha256,
-    ).hexdigest()
-    headers["X-User-Context-Timestamp"] = timestamp
-    headers["X-User-Context-Signature"] = f"v2={digest}"
     return headers
 
 

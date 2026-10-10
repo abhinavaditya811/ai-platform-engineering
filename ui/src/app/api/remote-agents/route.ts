@@ -1,7 +1,8 @@
+import { caipeOrgKey } from "@/lib/rbac/organization";
+import { requireResourcePermission } from "@/lib/rbac/resource-authz";
 import {
   ApiError,
   getAuthFromBearerOrSession,
-  requireRbacPermission,
   successResponse,
   withErrorHandler,
 } from "@/lib/api-middleware";
@@ -94,8 +95,8 @@ async function seedDeploymentAgents(collection: Awaited<ReturnType<typeof getCol
   }
 }
 
-async function requireRegistryAdmin(session: Parameters<typeof requireRbacPermission>[0]): Promise<void> {
-  await requireRbacPermission(session, "admin_ui", "admin");
+async function requireRegistryAdmin(session: Parameters<typeof requireResourcePermission>[0]): Promise<void> {
+  await requireResourcePermission(session, { type: "organization", id: caipeOrgKey(), action: "manage" });
 }
 
 export const GET = withErrorHandler(async (request: NextRequest) => {
@@ -104,7 +105,8 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
   try {
     await requireRegistryAdmin(session);
     canManage = true;
-  } catch {
+  } catch (error) {
+    if (!(error instanceof ApiError) || error.statusCode !== 403) throw error;
     // Listing is available to authenticated agent authors; writes remain admin-only.
   }
   const collection = await getCollection<RemoteAgentDocument>(COLLECTION_NAME);
