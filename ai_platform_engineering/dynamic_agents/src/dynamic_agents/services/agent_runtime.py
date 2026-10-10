@@ -1268,6 +1268,8 @@ class AgentRuntime:
                 create_remote_agent_tool(
                     a2a_url=remote_agent["endpoint"],
                     allowed_http_origins=self.settings.remote_a2a_allowed_http_origins,
+                    max_response_bytes=self.settings.remote_a2a_max_response_bytes,
+                    max_output_bytes=self.settings.remote_a2a_max_output_bytes,
                     name=remote_agent.get("name"),
                     description=remote_agent.get("description"),
                     bearer_token=self._auth_bearer,

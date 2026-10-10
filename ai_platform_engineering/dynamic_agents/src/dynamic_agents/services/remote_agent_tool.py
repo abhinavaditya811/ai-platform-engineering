@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import asyncio
 import re
 import uuid
+from contextlib import aclosing
 from typing import Any
 from urllib.parse import urlparse
 
@@ -17,6 +19,12 @@ from pydantic import BaseModel, ConfigDict, Field
 from dynamic_agents.auth.token_context import current_user_token
 from dynamic_agents.models import RemoteAgentCredentialSource
 from dynamic_agents.services.a2a_destination import A2ADestinationPolicy
+from dynamic_agents.services.a2a_limits import (
+    DEFAULT_MAX_OUTPUT_BYTES,
+    DEFAULT_MAX_RESPONSE_BYTES,
+    A2ABoundedTransport,
+    A2AResponseLimitError,
+)
 from dynamic_agents.services.credential_exchange import CredentialExchangeClient
 
 _UNSAFE_NAME_CHARS = re.compile(r"[^a-zA-Z0-9_-]+")
@@ -46,7 +54,8 @@ def _text_parts(message: Any) -> list[str]:
 class _RemoteOutput:
     """Accumulate artifact snapshots and append chunks without duplicating output."""
 
-    def __init__(self) -> None:
+    def __init__(self, max_output_bytes: int = DEFAULT_MAX_OUTPUT_BYTES) -> None:
+        self.max_output_bytes = max_output_bytes
         self.artifacts: dict[str, str] = {}
         self.messages: list[str] = []
         self.status_text = ""
@@ -80,6 +89,11 @@ class _RemoteOutput:
             status = response.task.status
         if status is not None and _field_is_set(status, "message"):
             self.status_text = "\n".join(_text_parts(status.message))
+        retained = [*self.messages, *self.artifacts.values()]
+        size = sum(len(text.encode("utf-8")) for text in retained) + max(0, len(retained) - 1)
+        size += len(self.status_text.encode("utf-8"))
+        if size > self.max_output_bytes:
+            raise A2AResponseLimitError(f"Remote A2A output exceeded {self.max_output_bytes} bytes")
         if status is not None:
             if status.state in {
                 TaskState.TASK_STATE_FAILED,
@@ -154,7 +168,9 @@ class RemoteAgentTool(BaseTool):
     credential_source: dict[str, Any] | None = None
     credential_api_url: str | None = None
     credential_service_audience: str = "caipe-credential-service"
-    timeout: int = 120
+    timeout: int = Field(default=120, ge=1, le=600)
+    max_response_bytes: int = Field(default=DEFAULT_MAX_RESPONSE_BYTES, gt=0)
+    max_output_bytes: int = Field(default=DEFAULT_MAX_OUTPUT_BYTES, gt=0)
     streaming: bool = False
     allowed_http_origins: list[str] = Field(default_factory=list)
 
@@ -172,6 +188,13 @@ class RemoteAgentTool(BaseTool):
         )
 
     async def _arun(self, message: str, runtime: ToolRuntime | None = None) -> str:
+        try:
+            async with asyncio.timeout(self.timeout):
+                return await self._execute(message, runtime)
+        except TimeoutError as exc:
+            raise TimeoutError(f"Remote A2A execution exceeded its {self.timeout} second deadline") from exc
+
+    async def _execute(self, message: str, runtime: ToolRuntime | None) -> str:
         # The runtime cache outlives individual requests, so resolve caller-scoped
         # auth at tool-call time using the active request token.
         policy = A2ADestinationPolicy(self.a2a_url, self.allowed_http_origins)
@@ -179,6 +202,7 @@ class RemoteAgentTool(BaseTool):
         headers = await self._resolve_auth_headers(token)
         timeout = httpx.Timeout(float(self.timeout))
         async with httpx.AsyncClient(
+            transport=A2ABoundedTransport(self.max_response_bytes),
             timeout=timeout, follow_redirects=False, event_hooks={"request": [policy.request_hook(headers)]}
         ) as http_client:
             factory = ClientFactory(
@@ -200,14 +224,15 @@ class RemoteAgentTool(BaseTool):
                         parts=[Part(text=message)],
                     )
                 )
-                output = _RemoteOutput()
+                output = _RemoteOutput(self.max_output_bytes)
                 context = ClientCallContext(timeout=float(self.timeout))
-                async for response in client.send_message(request, context=context):
-                    changed = output.update(response)
-                    if changed and self.streaming and runtime and runtime.tool_call_id:
-                        runtime.stream_writer(
-                            {"type": "tool_output", "tool_call_id": runtime.tool_call_id, "result": output.text}
-                        )
+                async with aclosing(client.send_message(request, context=context)) as responses:
+                    async for response in responses:
+                        changed = output.update(response)
+                        if changed and self.streaming and runtime and runtime.tool_call_id:
+                            runtime.stream_writer(
+                                {"type": "tool_output", "tool_call_id": runtime.tool_call_id, "result": output.text}
+                            )
                 if output.stream_seen and not output.finished:
                     raise RuntimeError("Remote A2A stream ended before the task completed")
                 return output.text or "Remote agent returned no text response."
@@ -225,6 +250,8 @@ async def create_remote_agent_tool(
     credential_api_url: str | None = None,
     credential_service_audience: str = "caipe-credential-service",
     timeout: int = 120,
+    max_response_bytes: int = DEFAULT_MAX_RESPONSE_BYTES,
+    max_output_bytes: int = DEFAULT_MAX_OUTPUT_BYTES,
     streaming: bool = False,
     allowed_http_origins: list[str] | None = None,
 ) -> RemoteAgentTool:
@@ -239,7 +266,9 @@ async def create_remote_agent_tool(
         credential_api_url: Credential service URL used for secrets and OAuth connections.
         credential_service_audience: Credential service audience.
         streaming: Request streaming when supported by the Agent Card.
-        timeout: Per-request timeout in seconds, configured in the UI registry.
+        timeout: Overall invocation deadline in seconds, configured in the UI registry.
+        max_response_bytes: Total HTTP response bytes allowed across discovery and execution.
+        max_output_bytes: Maximum accumulated UTF-8 output bytes.
     """
     safe_name = _sanitize_tool_name(name or "") or _sanitize_tool_name(urlparse(a2a_url).hostname or "")
     return RemoteAgentTool(
@@ -251,6 +280,8 @@ async def create_remote_agent_tool(
         credential_api_url=credential_api_url,
         credential_service_audience=credential_service_audience,
         timeout=timeout,
+        max_response_bytes=max_response_bytes,
+        max_output_bytes=max_output_bytes,
         streaming=streaming,
         allowed_http_origins=allowed_http_origins or [],
     )

@@ -21,7 +21,7 @@ async def test_probe_uses_cas_instead_of_context_flags(
 ) -> None:
     monkeypatch.setenv("CAIPE_ORG_KEY", "example")
     monkeypatch.setattr(remote_agents, "get_settings", lambda: SimpleNamespace(
-        debug=debug, remote_a2a_allowed_http_origins=[], credential_api_url="https://credentials.example.test",
+        debug=debug, remote_a2a_allowed_http_origins=[], remote_a2a_max_response_bytes=1024, credential_api_url="https://credentials.example.test",
         credential_service_audience="example",
     ))
     decide = AsyncMock(side_effect=decision) if isinstance(decision, Exception) else AsyncMock(return_value=decision)

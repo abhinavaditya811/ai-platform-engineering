@@ -324,3 +324,26 @@ async def test_card_cannot_send_credentials_to_another_origin(binding: str) -> N
                 await tool.ainvoke({"message": "hello"})
             # Only the configured origin's card was requested, no transport call reached the other server.
             assert len(_CaptureAuthorization.requests) == 1
+
+
+@pytest.mark.parametrize("binding", ["JSONRPC", "HTTP+JSON"])
+@pytest.mark.parametrize("limit", ["response", "output"])
+async def test_complete_sdk_result_obeys_size_limits(binding: str, limit: str) -> None:
+    with _sdk_agent_server(binding) as endpoint:
+        tool = await create_remote_agent_tool(
+            a2a_url=endpoint, allowed_http_origins=[endpoint], bearer_token="caller",
+            max_response_bytes=1024 if limit == "response" else 8192,
+            max_output_bytes=4 if limit == "output" else 8192,
+        )
+        with pytest.raises(RuntimeError, match="exceeded"):
+            await tool.ainvoke({"message": "x" * 2048})
+
+
+async def test_oversized_card_is_rejected_before_transport_selection() -> None:
+    with _sdk_agent_server() as endpoint:
+        tool = await create_remote_agent_tool(
+            a2a_url=endpoint, allowed_http_origins=[endpoint], bearer_token="caller", max_response_bytes=10,
+        )
+        with pytest.raises(RuntimeError, match="responses exceeded 10 bytes"):
+            await tool.ainvoke({"message": "hello"})
+        assert not any(headers.get("content-type", "").startswith("application/json") for headers in _CaptureAuthorization.requests)

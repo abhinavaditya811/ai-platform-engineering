@@ -1832,8 +1832,13 @@ allowlist and the enforcement graph use the same wildcard semantics.
 - HTTPS is required by default. `REMOTE_A2A_ALLOWED_HTTP_ORIGINS` permits exact
   local/private origins. Discovery and transport attach credentials only after
   origin validation; foreign Agent Card interfaces and redirects are rejected.
-- Timeout and streaming settings change execution behavior, not authentication
-  or authorization. Both streaming and complete responses use the same checks.
+- Timeout is an overall deadline covering credential resolution, discovery and
+  execution. Stream activity does not reset it. Deployment-owned response and
+  accumulated-text caps apply to both streaming and complete responses; limit
+  failures close the local stream without returning successful partial results.
+- Timeout and streaming settings do not grant permissions. Mandatory gateway
+  routing and verified caller/agent/remote delegation decisions are follow-up
+  work in [#2914](https://github.com/caipe-io/ai-platform-engineering/issues/2914).
 
 ### Key Environment Variables
 

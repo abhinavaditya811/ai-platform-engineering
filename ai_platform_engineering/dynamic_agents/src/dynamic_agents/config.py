@@ -2,6 +2,7 @@
 
 from functools import lru_cache
 
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -57,6 +58,8 @@ class Settings(BaseSettings):
 
     # Exact HTTP origins permitted for local/private A2A deployments. HTTPS is the default.
     remote_a2a_allowed_http_origins: list[str] = []
+    remote_a2a_max_response_bytes: int = Field(default=8 * 1024 * 1024, gt=0)
+    remote_a2a_max_output_bytes: int = Field(default=1024 * 1024, gt=0)
 
     # CORS
     cors_origins: list[str] = ["*"]

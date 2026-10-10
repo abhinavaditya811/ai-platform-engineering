@@ -411,7 +411,8 @@ dynamic_agents/
 
 - Register endpoints in **Agents > Advanced > Remote A2A Agents** as a platform admin.
 - Select multiple registry entries for an agent or its subagents. Each entry becomes a callable tool.
-- Configure a default timeout (1–600 seconds); agent authors can override it per selection.
+- Configure an overall execution deadline (1–600 seconds); agent authors can override it per selection.
+  The deadline includes credential resolution, Agent Card discovery, and execution; stream activity does not reset it.
 - Check **Stream responses** when adding or editing a registry entry to opt into A2A streaming. It defaults to off and applies to callers of that entry.
 - Streaming uses the official SDK and Agent Card capability negotiation. Endpoints without streaming support return complete responses.
 - Remote text appears progressively in the running tool output panel, including calls from subagents. Artifact append/replacement semantics are preserved; the completed result is passed to the parent agent. Disconnected/failed streams surface errors rather than successful partial answers.
@@ -443,3 +444,13 @@ dynamic_agents/
   `REMOTE_A2A_ALLOWED_HTTP_ORIGINS=["http://netutils-agent:8120","http://weather-agentgateway:4000"]`
   in the DA deployment. Trusting HTTP permits plaintext credential transmission on
   that network; do not add public HTTP origins.
+
+### A2A execution and response limits
+
+- `REMOTE_A2A_MAX_OUTPUT_BYTES`: maximum accumulated UTF-8 text (messages, artifacts, and status), default **1 MiB**.
+- `REMOTE_A2A_MAX_RESPONSE_BYTES`: total HTTP response bytes across discovery and execution in one call, default **8 MiB**. All response bytes count, including metadata, non-text payloads and SSE comments, before SDK parsing.
+- Configure these positive integer settings on the Dynamic Agents service. They apply to parent and subagent tools. UI timeouts remain bounded to 1–600 seconds.
+- Discovery probes use the response cap and a **10-second overall deadline**.
+- Requests use `Accept-Encoding: identity`; compressed responses are rejected to keep decompression from bypassing the response budget.
+- Exceeding a limit fails the tool call and closes the active response stream and SDK client. Oversized snapshots are not emitted; partial output is not returned as a successful answer. Closing a local stream does not guarantee cancellation of work already running on the remote service.
+- Remote endpoints must be trusted and administrator-approved. Mandatory AgentGateway routing, verified calling-agent identity and CAS delegation authorization are tracked in [#2914](https://github.com/caipe-io/ai-platform-engineering/issues/2914).
