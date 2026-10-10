@@ -437,8 +437,11 @@ dynamic_agents/
 - Set the same `DA_USER_CONTEXT_HMAC_SECRET` in the UI and Dynamic Agents.
   Autonomous Agents uses `DYNAMIC_AGENTS_USER_CONTEXT_HMAC_SECRET` with that same value.
   Compose derives this key from `NEXTAUTH_SECRET` when no dedicated key is set.
-- Gateway context uses a `v2` HMAC signature over the timestamp, bearer header and
-  encoded context. DA rejects unsigned, modified, expired or bearer-mismatched context.
+- Keep the signing key server-side. The gateway sends `X-User-Context-Timestamp`
+  as Unix seconds and `X-User-Context-Signature` as `v2=<sha256 HMAC hex>`.
+  Sign `timestamp + "\n" + Authorization + "\n" + encoded context`, using the
+  exact trimmed bearer header sent to DA. Timestamps must be within 120 seconds.
+  DA rejects unsigned, modified, expired or bearer-mismatched context.
 - Helm: configure identical `userContext.existingSecret.name` and `.key` references
   in `caipe-ui`, `dynamic-agents` and (when enabled) `autonomous-agents`.
 - A2A credentials are sent only to the registered origin. Agent Cards that advertise
